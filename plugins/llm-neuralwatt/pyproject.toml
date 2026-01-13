@@ -1,0 +1,27 @@
+[project]
+name = "llm-neuralwatt"
+version = "0.1.0"
+description = "LLM plugin for NeuralWatt API with energy usage tracking"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = [
+    "llm>=0.19",
+    "httpx>=0.25",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-httpx>=0.21",
+]
+
+[project.entry-points.llm]
+neuralwatt = "llm_neuralwatt"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["llm_neuralwatt"]

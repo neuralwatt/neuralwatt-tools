@@ -1,0 +1,82 @@
+#!/bin/bash
+# NeuralWatt API usage - shows today's request count and energy consumption
+#
+# Usage:
+#   nw-usage           # Human-readable output (always fresh)
+#   nw-usage --tmux    # Compact for tmux statusline (cached 5min)
+#   nw-usage --json    # Raw JSON (always fresh)
+
+set -euo pipefail
+
+CACHE_FILE="/tmp/nw-usage-cache.json"
+CACHE_MAX_AGE=300  # 5 minutes
+API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
+
+# Parse args
+FORMAT="human"
+USE_CACHE=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tmux) FORMAT="tmux"; USE_CACHE=true; shift ;;
+    --json) FORMAT="json"; shift ;;
+    --help|-h)
+      echo "Usage: nw-usage [--tmux|--json]"
+      echo "  --tmux  Compact output for tmux statusline (cached)"
+      echo "  --json  Raw JSON from API"
+      exit 0
+      ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+# Check cache freshness (only for --tmux)
+use_cache=false
+if [[ "$USE_CACHE" == "true" ]] && [[ -f "$CACHE_FILE" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    cache_mtime=$(stat -f %m "$CACHE_FILE")
+  else
+    cache_mtime=$(stat -c %Y "$CACHE_FILE")
+  fi
+  cache_age=$(($(date +%s) - cache_mtime))
+  if [[ $cache_age -lt $CACHE_MAX_AGE ]]; then
+    use_cache=true
+  fi
+fi
+
+# Get data (from cache or API)
+if [[ "$use_cache" == "true" ]]; then
+  data=$(cat "$CACHE_FILE")
+else
+  # Get API key
+  if [[ -n "${NEURALWATT_API_KEY:-}" ]]; then
+    api_key="$NEURALWATT_API_KEY"
+  elif [[ -f "$API_KEY_FILE" ]]; then
+    api_key=$(cat "$API_KEY_FILE")
+  else
+    echo "Error: No API key found. Set NEURALWATT_API_KEY or create $API_KEY_FILE" >&2
+    exit 1
+  fi
+
+  data=$(curl -s -H "Authorization: Bearer $api_key" \
+    https://api.neuralwatt.com/v1/usage/energy 2>/dev/null)
+
+  if [[ -z "$data" ]] || ! echo "$data" | jq -e '.daily[0]' >/dev/null 2>&1; then
+    echo "Error: Failed to fetch usage data" >&2
+    exit 1
+  fi
+
+  echo "$data" > "$CACHE_FILE"
+fi
+
+# Format output
+case "$FORMAT" in
+  json)
+    echo "$data"
+    ;;
+  tmux)
+    jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data"
+    ;;
+  human)
+    jq -r '.daily[0] | "NeuralWatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
+    ;;
+esac
