@@ -35,6 +35,7 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 | Integration | What It Does | Get Started |
 |-------------|--------------|-------------|
 | [nw-usage](scripts/) | CLI for checking energy usage | `nw-usage` or `nw-usage --tmux` |
+| [Claude Code](recipes/claude-code/) | Anthropic's coding CLI with NeuralWatt models | [Setup guide](recipes/claude-code/README.md) |
 | [OpenCode](recipes/opencode/) | AI coding agent CLI | [Setup guide](recipes/opencode/README.md) |
 | [llm plugin](plugins/llm-neuralwatt/) | Use NeuralWatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
 | [Neovim](recipes/neovim/) | AI completions + energy monitor | [Setup guide](recipes/neovim/README.md) |
@@ -49,6 +50,7 @@ neuralwatt-tools/
 ├── plugins/
 │   └── llm-neuralwatt/      # pip-installable LLM plugin
 └── recipes/
+    ├── claude-code/         # Anthropic's coding CLI setup
     ├── opencode/            # AI coding agent CLI setup
     ├── neovim/              # Energy monitor + AI plugin configs
     └── tmux/                # Statusline integration
