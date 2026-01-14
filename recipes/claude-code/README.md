@@ -62,6 +62,42 @@ ccr code
 
 Check [portal.neuralwatt.com](https://portal.neuralwatt.com) or use the `/v1/models` endpoint to see available models.
 
-## Energy Usage
+## Statusline: Show Today's Usage
 
-Want to see your energy consumption? Install the [nw-usage script](../../scripts/) to track usage from the command line or in your tmux status bar.
+Display your daily NeuralWatt usage directly in Claude Code's statusline. This shows **today's total usage** across all sessions, not the current session.
+
+![Claude Code statusline showing NeuralWatt usage](../../images/claude-code-statusline.png)
+
+**1. Install the `nw-usage` script:**
+
+```bash
+# Copy to somewhere in your PATH
+cp scripts/nw-usage ~/.local/bin/
+chmod +x ~/.local/bin/nw-usage
+
+# Store your API key
+mkdir -p ~/.config/neuralwatt
+echo "your-api-key" > ~/.config/neuralwatt/api_key
+chmod 600 ~/.config/neuralwatt/api_key
+```
+
+**2. Add to Claude Code settings** (`~/.claude/settings.json`):
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "nw-usage --tmux --color '1;32'"
+  }
+}
+```
+
+**3. Restart Claude Code** to see usage in the statusline (in bright green):
+
+```
+↗42 ⚡156Wh
+```
+
+The `--color` flag takes an ANSI code (e.g., `1;32` for bright green, `0;36` for cyan). Quote the color code to prevent the semicolon from being interpreted as a command separator. The `--tmux` flag caches results for 5 minutes to avoid excessive API calls.
+
+See the [nw-usage script docs](../../scripts/) for more output options.

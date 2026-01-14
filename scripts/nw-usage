@@ -2,9 +2,10 @@
 # NeuralWatt API usage - shows today's request count and energy consumption
 #
 # Usage:
-#   nw-usage           # Human-readable output (always fresh)
-#   nw-usage --tmux    # Compact for tmux statusline (cached 5min)
-#   nw-usage --json    # Raw JSON (always fresh)
+#   nw-usage                       # Human-readable output (always fresh)
+#   nw-usage --tmux                # Compact for tmux/statusline (cached 5min)
+#   nw-usage --tmux --color '1;32' # With ANSI color (bright green)
+#   nw-usage --json                # Raw JSON (always fresh)
 
 set -euo pipefail
 
@@ -15,14 +16,20 @@ API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
 # Parse args
 FORMAT="human"
 USE_CACHE=false
+COLOR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tmux) FORMAT="tmux"; USE_CACHE=true; shift ;;
     --json) FORMAT="json"; shift ;;
+    --color)
+      COLOR="${2:-}"
+      shift 2
+      ;;
     --help|-h)
-      echo "Usage: nw-usage [--tmux|--json]"
-      echo "  --tmux  Compact output for tmux statusline (cached)"
-      echo "  --json  Raw JSON from API"
+      echo "Usage: nw-usage [--tmux|--json] [--color CODE]"
+      echo "  --tmux        Compact output for statusline (cached)"
+      echo "  --json        Raw JSON from API"
+      echo "  --color CODE  ANSI color code (e.g., '1;32' for bright green)"
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -74,7 +81,12 @@ case "$FORMAT" in
     echo "$data"
     ;;
   tmux)
-    jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data"
+    output=$(jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data")
+    if [[ -n "$COLOR" ]]; then
+      printf "\033[%sm%s\033[0m\n" "$COLOR" "$output"
+    else
+      echo "$output"
+    fi
     ;;
   human)
     jq -r '.daily[0] | "NeuralWatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"

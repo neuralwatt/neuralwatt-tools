@@ -54,10 +54,11 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com).
 ## Usage
 
 ```bash
-nw-usage           # Human-readable output
-nw-usage --tmux    # Compact for tmux statusline (cached)
-nw-usage --json    # Raw JSON from API
-nw-usage --help    # Show help
+nw-usage                       # Human-readable output
+nw-usage --tmux                # Compact for tmux/statusline (cached)
+nw-usage --tmux --color '1;32' # With ANSI color (bright green)
+nw-usage --json                # Raw JSON from API
+nw-usage --help                # Show help
 ```
 
 ### Examples
@@ -89,7 +90,24 @@ $ nw-usage --tmux
 
 The `--tmux` flag caches results for 5 minutes at `/tmp/nw-usage-cache.json` to avoid excessive API calls from statusline refreshes. Other modes always fetch fresh data.
 
+## Colors
+
+The `--color` flag accepts ANSI color codes:
+
+| Code | Color |
+|------|-------|
+| `0;31` | Red |
+| `0;32` | Green |
+| `0;33` | Yellow |
+| `0;34` | Blue |
+| `0;36` | Cyan |
+| `1;31` | Bright red |
+| `1;32` | Bright green |
+| `1;33` | Bright yellow |
+| `1;36` | Bright cyan |
+
 ## Integrations
 
+- **Claude Code statusline**: See [recipes/claude-code/](../recipes/claude-code/)
 - **Tmux statusline**: See [recipes/tmux/](../recipes/tmux/)
 - **OpenCode**: See [recipes/opencode/](../recipes/opencode/)

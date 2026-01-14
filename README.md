@@ -2,6 +2,10 @@
 
 Tools and recipes for using the [NeuralWatt](https://neuralwatt.com) inference API.
 
+![llm chat with energy metrics](images/llm-chat-energy.png)
+
+![Claude Code statusline with energy usage](images/claude-code-statusline.png)
+
 ## What is NeuralWatt?
 
 [NeuralWatt](https://neuralwatt.com) builds software for energy-efficient AI infrastructure. As part of this, we run a hosted inference API at [portal.neuralwatt.com](https://portal.neuralwatt.com).

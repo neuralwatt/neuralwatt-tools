@@ -9,6 +9,8 @@ Two ways to use NeuralWatt in Neovim:
 
 A Lua module that polls the NeuralWatt usage API and displays energy stats.
 
+![Neovim energy monitor](../../images/neovim-energy-monitor.png)
+
 ### Installation
 
 Copy `energy-monitor.lua` to your Neovim config:

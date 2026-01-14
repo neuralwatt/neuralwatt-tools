@@ -2,9 +2,7 @@
 
 Show your NeuralWatt API usage in the tmux status bar.
 
-```
-↗42 ⚡127Wh
-```
+![Tmux statusline with NeuralWatt usage](../../images/tmux-statusline.png)
 
 ## Setup
 

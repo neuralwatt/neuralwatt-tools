@@ -6,9 +6,9 @@ energy consumption metadata that NeuralWatt returns with each request.
 """
 
 import json
-import sys
 from typing import Optional, Iterator
 
+import click
 import httpx
 import llm
 from pydantic import Field
@@ -50,7 +50,7 @@ def print_energy(energy: dict) -> None:
     wh = energy.get("energy_kwh", 0) * 1000
 
     line = f"⚡ {format_scaled(joules, 'J')} | {format_scaled(watts, 'W')} | {duration:.2f}s | {format_scaled(wh, 'Wh')}"
-    print(f"\n{line}", file=sys.stderr)
+    click.echo(f"\n{click.style(line, fg='green')}", err=True)
 
 
 class NeuralWattChat(llm.Model):

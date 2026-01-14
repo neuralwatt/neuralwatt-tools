@@ -2,6 +2,8 @@
 
 A plugin for [LLM](https://llm.datasette.io/) that adds support for [NeuralWatt](https://neuralwatt.com) models with **energy usage tracking**.
 
+![llm chat with energy metrics](../../images/llm-chat-energy.png)
+
 This plugin captures the energy consumption metadata that NeuralWatt returns with each inference request, storing it in LLM's log database alongside token usage.
 
 ## Installation
