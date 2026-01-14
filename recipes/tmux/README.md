@@ -1,8 +1,8 @@
-# Tmux Statusline with NeuralWatt
+# Tmux Statusline with Neuralwatt
 
-Show your NeuralWatt API usage in the tmux status bar.
+Show your Neuralwatt API usage in the tmux status bar.
 
-![Tmux statusline with NeuralWatt usage](../../images/tmux-statusline.png)
+![Tmux statusline with Neuralwatt usage](../../images/tmux-statusline.png)
 
 ## Setup
 

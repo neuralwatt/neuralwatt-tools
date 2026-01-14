@@ -1,7 +1,7 @@
 [project]
 name = "llm-neuralwatt"
 version = "0.1.0"
-description = "LLM plugin for NeuralWatt API with energy usage tracking"
+description = "LLM plugin for Neuralwatt API with energy usage tracking"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.9"

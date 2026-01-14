@@ -1,6 +1,6 @@
 # nw-usage
 
-CLI for checking your NeuralWatt API usage and energy consumption.
+CLI for checking your Neuralwatt API usage and energy consumption.
 
 ## Dependencies
 
@@ -66,7 +66,7 @@ nw-usage --help                # Show help
 **Human-readable** (default):
 ```
 $ nw-usage
-NeuralWatt Usage for 2026-01-14
+Neuralwatt Usage for 2026-01-14
   Requests: 49
   Energy: 3Wh (12469J)
 ```

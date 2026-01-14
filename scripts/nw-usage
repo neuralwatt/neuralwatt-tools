@@ -1,5 +1,5 @@
 #!/bin/bash
-# NeuralWatt API usage - shows today's request count and energy consumption
+# Neuralwatt API usage - shows today's request count and energy consumption
 #
 # Usage:
 #   nw-usage                       # Human-readable output (always fresh)
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 CACHE_FILE="/tmp/nw-usage-cache.json"
-CACHE_MAX_AGE=300  # 5 minutes
+CACHE_MAX_AGE=60  # 5 minutes
 API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
 
 # Parse args
@@ -89,6 +89,6 @@ case "$FORMAT" in
     fi
     ;;
   human)
-    jq -r '.daily[0] | "NeuralWatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
+    jq -r '.daily[0] | "Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
     ;;
 esac

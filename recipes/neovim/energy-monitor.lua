@@ -1,5 +1,5 @@
--- NeuralWatt Energy Monitor for Neovim
--- Shows live energy usage from NeuralWatt API
+-- Neuralwatt Energy Monitor for Neovim
+-- Shows live energy usage from Neuralwatt API
 
 local M = {}
 
@@ -35,7 +35,7 @@ end
 function M.fetch(callback)
   local api_key = get_api_key()
   if not api_key then
-    vim.notify("NeuralWatt: API key not found", vim.log.levels.ERROR)
+    vim.notify("Neuralwatt: API key not found", vim.log.levels.ERROR)
     return
   end
 
@@ -126,12 +126,12 @@ function M.show_float()
   M.fetch(function()
     local stats = M.get_stats()
     if not stats then
-      vim.notify("NeuralWatt: No data available", vim.log.levels.WARN)
+      vim.notify("Neuralwatt: No data available", vim.log.levels.WARN)
       return
     end
 
     local lines = {
-      " NeuralWatt Energy ",
+      " Neuralwatt Energy ",
       string.rep("─", 28),
       "",
       " Session:",
@@ -271,7 +271,7 @@ function M.notify()
       format_kwh(stats.session_kwh), stats.session_requests,
       format_kwh(stats.today_kwh), stats.today_requests
     )
-    vim.notify(msg, vim.log.levels.INFO, { title = "NeuralWatt Energy" })
+    vim.notify(msg, vim.log.levels.INFO, { title = "Neuralwatt Energy" })
   end)
 end
 
@@ -280,9 +280,9 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
   -- Create commands
-  vim.api.nvim_create_user_command('NeuralWattEnergy', function() M.show_float() end, {})
-  vim.api.nvim_create_user_command('NeuralWattMini', function() M.toggle_mini() end, {})
-  vim.api.nvim_create_user_command('NeuralWattNotify', function() M.notify() end, {})
+  vim.api.nvim_create_user_command('NeuralwattEnergy', function() M.show_float() end, {})
+  vim.api.nvim_create_user_command('NeuralwattMini', function() M.toggle_mini() end, {})
+  vim.api.nvim_create_user_command('NeuralwattNotify', function() M.notify() end, {})
 
   if M.config.auto_start then
     M.start_polling()

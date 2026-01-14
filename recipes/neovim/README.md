@@ -1,13 +1,13 @@
-# Neovim with NeuralWatt
+# Neovim with Neuralwatt
 
-Two ways to use NeuralWatt in Neovim:
+Two ways to use Neuralwatt in Neovim:
 
-1. **Energy Monitor** - Track your NeuralWatt API usage in a floating window
-2. **AI Completions** - Use NeuralWatt as the backend for coding assistant plugins
+1. **Energy Monitor** - Track your Neuralwatt API usage in a floating window
+2. **AI Completions** - Use Neuralwatt as the backend for coding assistant plugins
 
 ## Energy Monitor
 
-A Lua module that polls the NeuralWatt usage API and displays energy stats.
+A Lua module that polls the Neuralwatt usage API and displays energy stats.
 
 ![Neovim energy monitor](../../images/neovim-energy-monitor.png)
 
@@ -43,22 +43,22 @@ echo "your-api-key-here" > ~/.config/neuralwatt/api_key
 
 | Command | Description |
 |---------|-------------|
-| `:NeuralWattEnergy` | Show full stats in a floating window |
-| `:NeuralWattMini` | Toggle mini stats in corner |
-| `:NeuralWattNotify` | Show stats as notification |
+| `:NeuralwattEnergy` | Show full stats in a floating window |
+| `:NeuralwattMini` | Toggle mini stats in corner |
+| `:NeuralwattNotify` | Show stats as notification |
 
 ### Key Bindings (Optional)
 
 ```lua
-vim.keymap.set('n', '<leader>ne', ':NeuralWattEnergy<CR>', { desc = 'NeuralWatt energy stats' })
-vim.keymap.set('n', '<leader>nm', ':NeuralWattMini<CR>', { desc = 'NeuralWatt mini toggle' })
+vim.keymap.set('n', '<leader>ne', ':NeuralwattEnergy<CR>', { desc = 'Neuralwatt energy stats' })
+vim.keymap.set('n', '<leader>nm', ':NeuralwattMini<CR>', { desc = 'Neuralwatt mini toggle' })
 ```
 
 ---
 
 ## AI Completions
 
-NeuralWatt is OpenAI-compatible, so any Neovim plugin that supports OpenAI can use it.
+Neuralwatt is OpenAI-compatible, so any Neovim plugin that supports OpenAI can use it.
 
 ### codecompanion.nvim
 

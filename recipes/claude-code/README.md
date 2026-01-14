@@ -1,12 +1,12 @@
-# Claude Code with NeuralWatt
+# Claude Code with Neuralwatt
 
-[Claude Code](https://github.com/anthropics/claude-code) is Anthropic's official AI coding CLI. Using [claude-code-router](https://github.com/musistudio/claude-code-router), you can route requests to NeuralWatt's OpenAI-compatible API.
+[Claude Code](https://github.com/anthropics/claude-code) is Anthropic's official AI coding CLI. Using [claude-code-router](https://github.com/musistudio/claude-code-router), you can route requests to Neuralwatt's OpenAI-compatible API.
 
-> **Note:** Using Claude Code with non-Anthropic models is not officially supported by Anthropic. This recipe documents an alternative configuration for users who want to use the Claude Code interface with NeuralWatt's models.
+> **Note:** Using Claude Code with non-Anthropic models is not officially supported by Anthropic. This recipe documents an alternative configuration for users who want to use the Claude Code interface with Neuralwatt's models.
 
 ## Prerequisites
 
-- [NeuralWatt API key](https://portal.neuralwatt.com)
+- [Neuralwatt API key](https://portal.neuralwatt.com)
 - Node.js 18+
 
 ## Install
@@ -64,9 +64,9 @@ Check [portal.neuralwatt.com](https://portal.neuralwatt.com) or use the `/v1/mod
 
 ## Statusline: Show Today's Usage
 
-Display your daily NeuralWatt usage directly in Claude Code's statusline. This shows **today's total usage** across all sessions, not the current session.
+Display your daily Neuralwatt usage directly in Claude Code's statusline. This shows **today's total usage** across all sessions, not the current session.
 
-![Claude Code statusline showing NeuralWatt usage](../../images/claude-code-statusline.png)
+![Claude Code statusline showing Neuralwatt usage](../../images/claude-code-statusline.png)
 
 **1. Install the `nw-usage` script:**
 

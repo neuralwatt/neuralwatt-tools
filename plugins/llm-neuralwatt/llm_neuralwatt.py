@@ -1,8 +1,8 @@
 """
-LLM plugin for NeuralWatt API with energy usage tracking.
+LLM plugin for Neuralwatt API with energy usage tracking.
 
-This plugin provides access to NeuralWatt's inference API and captures
-energy consumption metadata that NeuralWatt returns with each request.
+This plugin provides access to Neuralwatt's inference API and captures
+energy consumption metadata that Neuralwatt returns with each request.
 """
 
 import json
@@ -18,7 +18,7 @@ API_BASE = "https://api.neuralwatt.com/v1"
 USER_AGENT = "llm-neuralwatt/0.1.0"
 TIMEOUT_SECONDS = 300.0
 
-# Available models on NeuralWatt
+# Available models on Neuralwatt
 MODELS = {
     "neuralwatt-qwen": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     "neuralwatt-deepseek": "deepseek-ai/deepseek-coder-33b-instruct",
@@ -53,8 +53,8 @@ def print_energy(energy: dict) -> None:
     click.echo(f"\n{click.style(line, fg='green')}", err=True)
 
 
-class NeuralWattChat(llm.Model):
-    """NeuralWatt chat completion model with energy tracking."""
+class NeuralwattChat(llm.Model):
+    """Neuralwatt chat completion model with energy tracking."""
 
     needs_key = "neuralwatt"
     key_env_var = "NEURALWATT_API_KEY"
@@ -132,7 +132,7 @@ class NeuralWattChat(llm.Model):
         with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
             r = client.post(f"{API_BASE}/chat/completions", headers=headers, json=body)
             if r.status_code != 200:
-                raise llm.ModelError(f"NeuralWatt API error {r.status_code}: {r.text}")
+                raise llm.ModelError(f"Neuralwatt API error {r.status_code}: {r.text}")
             data = r.json()
 
         content = data["choices"][0]["message"]["content"]
@@ -163,7 +163,7 @@ class NeuralWattChat(llm.Model):
             ) as r:
                 if r.status_code != 200:
                     raise llm.ModelError(
-                        f"NeuralWatt API error {r.status_code}: {r.read().decode()}"
+                        f"Neuralwatt API error {r.status_code}: {r.read().decode()}"
                     )
 
                 buffer = ""
@@ -175,7 +175,7 @@ class NeuralWattChat(llm.Model):
                         if not line:
                             continue
 
-                        # NeuralWatt sends energy as SSE comment: ": energy {...}"
+                        # Neuralwatt sends energy as SSE comment: ": energy {...}"
                         if line.startswith(": energy "):
                             try:
                                 energy = json.loads(line[9:])
@@ -219,6 +219,6 @@ class NeuralWattChat(llm.Model):
 
 @llm.hookimpl
 def register_models(register):
-    """Register NeuralWatt models."""
+    """Register Neuralwatt models."""
     for model_id, model_name in MODELS.items():
-        register(NeuralWattChat(model_id, model_name))
+        register(NeuralwattChat(model_id, model_name))

@@ -8,7 +8,7 @@ import llm
 from llm_neuralwatt import (
     format_scaled,
     print_energy,
-    NeuralWattChat,
+    NeuralwattChat,
     MODELS,
     register_models,
 )
@@ -73,7 +73,7 @@ def test_models_registered():
 
 def test_model_attributes():
     """Verify model has correct attributes."""
-    model = NeuralWattChat("neuralwatt-qwen", "Qwen/Qwen3-Coder-480B-A35B-Instruct")
+    model = NeuralwattChat("neuralwatt-qwen", "Qwen/Qwen3-Coder-480B-A35B-Instruct")
 
     assert model.model_id == "neuralwatt-qwen"
     assert model._model_name == "Qwen/Qwen3-Coder-480B-A35B-Instruct"
@@ -104,7 +104,7 @@ def test_fetch_captures_energy(httpx_mock):
         json=mock_response,
     )
 
-    model = NeuralWattChat("test", "test-model")
+    model = NeuralwattChat("test", "test-model")
 
     # Mock get_key
     with patch.object(model, "get_key", return_value="test-key"):
@@ -146,7 +146,7 @@ def test_stream_captures_energy(httpx_mock):
         headers={"content-type": "text/event-stream"},
     )
 
-    model = NeuralWattChat("test", "test-model")
+    model = NeuralwattChat("test", "test-model")
 
     with patch.object(model, "get_key", return_value="test-key"):
         prompt = Mock()
@@ -170,7 +170,7 @@ def test_stream_captures_energy(httpx_mock):
 
 def test_build_messages_with_conversation():
     """Test message building includes conversation history."""
-    model = NeuralWattChat("test", "test-model")
+    model = NeuralwattChat("test", "test-model")
 
     prompt = Mock()
     prompt.prompt = "What about now?"
@@ -210,7 +210,7 @@ def test_show_energy_prints_to_stderr(httpx_mock, capsys):
         json=mock_response,
     )
 
-    model = NeuralWattChat("test", "test-model")
+    model = NeuralwattChat("test", "test-model")
 
     with patch.object(model, "get_key", return_value="test-key"):
         prompt = Mock()
@@ -241,7 +241,7 @@ def test_api_error_raises_model_error(httpx_mock):
         text="Unauthorized",
     )
 
-    model = NeuralWattChat("test", "test-model")
+    model = NeuralwattChat("test", "test-model")
 
     with patch.object(model, "get_key", return_value="bad-key"):
         prompt = Mock()

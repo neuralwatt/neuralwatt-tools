@@ -1,10 +1,10 @@
 # llm-neuralwatt
 
-A plugin for [LLM](https://llm.datasette.io/) that adds support for [NeuralWatt](https://neuralwatt.com) models with **energy usage tracking**.
+A plugin for [LLM](https://llm.datasette.io/) that adds support for [Neuralwatt](https://neuralwatt.com) models with **energy usage tracking**.
 
 ![llm chat with energy metrics](../../images/llm-chat-energy.png)
 
-This plugin captures the energy consumption metadata that NeuralWatt returns with each inference request, storing it in LLM's log database alongside token usage.
+This plugin captures the energy consumption metadata that Neuralwatt returns with each inference request, storing it in LLM's log database alongside token usage.
 
 ## Installation
 
@@ -23,7 +23,7 @@ llm install -e /path/to/neuralwatt-tools/plugins/llm-neuralwatt
 
 ## Configuration
 
-Set your NeuralWatt API key:
+Set your Neuralwatt API key:
 
 ```bash
 llm keys set neuralwatt
@@ -123,7 +123,7 @@ print(f'Time:   {e.get(\"duration_seconds\", 0):.3f} s')
 
 ## Why Energy Tracking?
 
-NeuralWatt provides transparency into the environmental cost of AI inference. By logging energy data alongside responses, you can track cumulative energy use over time, compare efficiency across models, and build awareness of AI's carbon footprint.
+Neuralwatt provides transparency into the environmental cost of AI inference. By logging energy data alongside responses, you can track cumulative energy use over time, compare efficiency across models, and build awareness of AI's carbon footprint.
 
 ## Development
 

@@ -1,18 +1,18 @@
 # neuralwatt-tools
 
-Tools and recipes for using the [NeuralWatt](https://neuralwatt.com) inference API.
+Tools and recipes for using the [Neuralwatt](https://neuralwatt.com) inference API.
 
 ![llm chat with energy metrics](images/llm-chat-energy.png)
 
 ![Claude Code statusline with energy usage](images/claude-code-statusline.png)
 
-## What is NeuralWatt?
+## What is Neuralwatt?
 
-[NeuralWatt](https://neuralwatt.com) builds software for energy-efficient AI infrastructure. As part of this, we run a hosted inference API at [portal.neuralwatt.com](https://portal.neuralwatt.com).
+[Neuralwatt](https://neuralwatt.com) builds software for energy-efficient AI infrastructure. As part of this, we run a hosted inference API at [portal.neuralwatt.com](https://portal.neuralwatt.com).
 
-**OpenAI-compatible API.** NeuralWatt exposes an OpenAI-compatible endpoint (`https://api.neuralwatt.com/v1`), so it works with any tool that supports custom base URLs: coding assistants like [aider](https://aider.chat) and [continue.dev](https://continue.dev), CLI tools like [llm](https://llm.datasette.io), and many editor plugins.
+**OpenAI-compatible API.** Neuralwatt exposes an OpenAI-compatible endpoint (`https://api.neuralwatt.com/v1`), so it works with any tool that supports custom base URLs: coding assistants like [aider](https://aider.chat) and [continue.dev](https://continue.dev), CLI tools like [llm](https://llm.datasette.io), and many editor plugins.
 
-**Energy reporting.** Unlike other inference providers, NeuralWatt returns energy consumption data with every API response. You get not just token counts, but actual energy use:
+**Energy reporting.** Unlike other inference providers, Neuralwatt returns energy consumption data with every API response. You get not just token counts, but actual energy use:
 
 ```json
 {
@@ -39,9 +39,9 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 | Integration | What It Does | Get Started |
 |-------------|--------------|-------------|
 | [nw-usage](scripts/) | CLI for checking energy usage | `nw-usage` or `nw-usage --tmux` |
-| [Claude Code](recipes/claude-code/) | Anthropic's coding CLI with NeuralWatt models | [Setup guide](recipes/claude-code/README.md) |
+| [Claude Code](recipes/claude-code/) | Anthropic's coding CLI with Neuralwatt models | [Setup guide](recipes/claude-code/README.md) |
 | [OpenCode](recipes/opencode/) | AI coding agent CLI | [Setup guide](recipes/opencode/README.md) |
-| [llm plugin](plugins/llm-neuralwatt/) | Use NeuralWatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
+| [llm plugin](plugins/llm-neuralwatt/) | Use Neuralwatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
 | [Neovim](recipes/neovim/) | AI completions + energy monitor | [Setup guide](recipes/neovim/README.md) |
 | [Tmux](recipes/tmux/) | Show usage in status bar | [Setup guide](recipes/tmux/README.md) |
 
@@ -62,7 +62,7 @@ neuralwatt-tools/
 
 ## Using with Any OpenAI-Compatible Tool
 
-Most AI tools support custom endpoints. Point them at NeuralWatt:
+Most AI tools support custom endpoints. Point them at Neuralwatt:
 
 ```python
 from openai import OpenAI

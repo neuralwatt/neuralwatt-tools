@@ -1,4 +1,4 @@
-# OpenCode with NeuralWatt
+# OpenCode with Neuralwatt
 
 [OpenCode](https://opencode.ai) ([GitHub](https://github.com/anomalyco/opencode)) is an AI coding agent CLI that lets you bring your own models.
 
@@ -25,7 +25,7 @@ export NEURALWATT_API_KEY="your-api-key-here"
   "model": "neuralwatt/Qwen/Qwen3-Coder-480B-A35B-Instruct",
   "provider": {
     "neuralwatt": {
-      "name": "NeuralWatt",
+      "name": "Neuralwatt",
       "npm": "@ai-sdk/openai-compatible",
       "models": {
         "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
@@ -64,8 +64,8 @@ ln -s /path/to/neuralwatt-tools/scripts/nw-usage ~/.local/bin/nw-usage
 {
   "command": {
     "nw-usage": {
-      "description": "Show NeuralWatt energy usage",
-      "template": "Here is my NeuralWatt API usage:\n\n!`nw-usage`\n\nReport this to the user."
+      "description": "Show Neuralwatt energy usage",
+      "template": "Here is my Neuralwatt API usage:\n\n!`nw-usage`\n\nReport this to the user."
     }
   }
 }
@@ -79,9 +79,9 @@ Instead of JSON config, create `.opencode/command/nw-usage.md` in your project:
 
 ```markdown
 ---
-description: Show NeuralWatt energy usage
+description: Show Neuralwatt energy usage
 ---
-Here is my NeuralWatt API usage:
+Here is my Neuralwatt API usage:
 
 !`nw-usage`
 
