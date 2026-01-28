@@ -1,5 +1,9 @@
 # neuralwatt-tools
 
+[![CI](https://github.com/neuralwatt/neuralwatt-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/neuralwatt/neuralwatt-tools/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 Tools and recipes for using the [Neuralwatt](https://neuralwatt.com) inference API.
 
 ![llm chat with energy metrics](images/llm-chat-energy.png)

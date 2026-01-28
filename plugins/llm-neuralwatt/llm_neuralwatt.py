@@ -6,7 +6,7 @@ energy consumption metadata that Neuralwatt returns with each request.
 """
 
 import json
-from typing import Optional, Iterator
+from typing import Iterator, Optional
 
 import click
 import httpx
@@ -49,7 +49,13 @@ def print_energy(energy: dict) -> None:
     duration = energy.get("duration_seconds", 0)
     wh = energy.get("energy_kwh", 0) * 1000
 
-    line = f"⚡ {format_scaled(joules, 'J')} | {format_scaled(watts, 'W')} | {duration:.2f}s | {format_scaled(wh, 'Wh')}"
+    parts = [
+        format_scaled(joules, "J"),
+        format_scaled(watts, "W"),
+        f"{duration:.2f}s",
+        format_scaled(wh, "Wh"),
+    ]
+    line = f"⚡ {' | '.join(parts)}"
     click.echo(f"\n{click.style(line, fg='green')}", err=True)
 
 
@@ -108,9 +114,7 @@ class NeuralwattChat(llm.Model):
         else:
             yield from self._fetch(headers, body, response, prompt.options.show_energy)
 
-    def _build_messages(
-        self, prompt: llm.Prompt, conversation: Optional[llm.Conversation]
-    ) -> list:
+    def _build_messages(self, prompt: llm.Prompt, conversation: Optional[llm.Conversation]) -> list:
         """Build the messages array for the API request."""
         messages = []
 

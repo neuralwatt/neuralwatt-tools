@@ -1,47 +1,49 @@
 """Tests for llm-neuralwatt plugin."""
 
-import json
-import pytest
 from unittest.mock import Mock, patch
 
 import llm
+import pytest
 from llm_neuralwatt import (
+    NeuralwattChat,
     format_scaled,
     print_energy,
-    NeuralwattChat,
-    MODELS,
     register_models,
 )
 
-
 # --- Unit tests for format_scaled ---
 
-@pytest.mark.parametrize("value,unit,expected", [
-    # Mega
-    (1_500_000, "J", "1.50MJ"),
-    (2_000_000, "W", "2.00MW"),
-    # Kilo
-    (1_500, "J", "1.50kJ"),
-    (1_000, "W", "1.00kW"),
-    # Base
-    (45.2, "J", "45.20J"),
-    (100, "W", "100.00W"),
-    (1, "Wh", "1.00Wh"),
-    # Milli
-    (0.5, "J", "500.00mJ"),
-    (0.0126, "Wh", "12.60mWh"),
-    # Micro
-    (0.000005, "Wh", "5.00uWh"),
-    (0.000001, "J", "1.00uJ"),
-    # Zero
-    (0, "J", "0J"),
-    (0.0000000001, "Wh", "0Wh"),
-])
+
+@pytest.mark.parametrize(
+    "value,unit,expected",
+    [
+        # Mega
+        (1_500_000, "J", "1.50MJ"),
+        (2_000_000, "W", "2.00MW"),
+        # Kilo
+        (1_500, "J", "1.50kJ"),
+        (1_000, "W", "1.00kW"),
+        # Base
+        (45.2, "J", "45.20J"),
+        (100, "W", "100.00W"),
+        (1, "Wh", "1.00Wh"),
+        # Milli
+        (0.5, "J", "500.00mJ"),
+        (0.0126, "Wh", "12.60mWh"),
+        # Micro
+        (0.000005, "Wh", "5.00uWh"),
+        (0.000001, "J", "1.00uJ"),
+        # Zero
+        (0, "J", "0J"),
+        (0.0000000001, "Wh", "0Wh"),
+    ],
+)
 def test_format_scaled(value, unit, expected):
     assert format_scaled(value, unit) == expected
 
 
 # --- Unit tests for print_energy ---
+
 
 def test_print_energy_output(capsys):
     energy = {
@@ -60,6 +62,7 @@ def test_print_energy_output(capsys):
 
 
 # --- Model registration tests ---
+
 
 def test_models_registered():
     """Verify all models are registered with llm."""
@@ -82,6 +85,7 @@ def test_model_attributes():
 
 
 # --- HTTP request tests ---
+
 
 def test_fetch_captures_energy(httpx_mock):
     """Test non-streaming request captures energy data."""
@@ -135,8 +139,9 @@ def test_stream_captures_energy(httpx_mock):
         'data: {"id":"123","choices":[{"delta":{"content":"Hello"}}]}\n\n'
         'data: {"id":"123","choices":[{"delta":{"content":"!"}}]}\n\n'
         'data: {"id":"123","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\n'
-        ': energy {"energy_joules":30.5,"energy_kwh":8.5e-06,"avg_power_watts":60.0,"duration_seconds":0.51}\n\n'
-        'data: [DONE]\n\n'
+        ": energy "
+        '{"energy_joules":30.5,"energy_kwh":8.5e-06,"avg_power_watts":60.0,"duration_seconds":0.51}\n\n'
+        "data: [DONE]\n\n"
     )
 
     httpx_mock.add_response(
@@ -201,7 +206,12 @@ def test_show_energy_prints_to_stderr(httpx_mock, capsys):
         "model": "test",
         "choices": [{"message": {"content": "Hi"}}],
         "usage": {"total_tokens": 5},
-        "energy": {"energy_joules": 10, "energy_kwh": 2.7e-06, "avg_power_watts": 50, "duration_seconds": 0.2},
+        "energy": {
+            "energy_joules": 10,
+            "energy_kwh": 2.7e-06,
+            "avg_power_watts": 50,
+            "duration_seconds": 0.2,
+        },
     }
 
     httpx_mock.add_response(
