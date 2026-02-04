@@ -13,7 +13,7 @@
 
 ```bash
 npm install -g @anthropic-ai/claude-code
-npm install -g @anthropic-ai/claude-code-router
+npm install -g @musistudio/claude-code-router
 ```
 
 ## Setup
