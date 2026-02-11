@@ -2,11 +2,15 @@
 
 from unittest.mock import Mock, patch
 
+import httpx
 import llm
 import pytest
 from llm_neuralwatt import (
+    FALLBACK_MODELS,
     NeuralwattChat,
+    fetch_models,
     format_scaled,
+    model_id_from_name,
     print_energy,
     register_models,
 )
@@ -61,17 +65,132 @@ def test_print_energy_output(capsys):
     assert "12.60mWh" in captured.err
 
 
+# --- model_id_from_name tests ---
+
+
+@pytest.mark.parametrize(
+    "api_id,expected",
+    [
+        ("Qwen/Qwen3-Coder-480B-A35B-Instruct", "neuralwatt-qwen3-coder-480b-a35b"),
+        ("deepseek-ai/deepseek-coder-33b-instruct", "neuralwatt-deepseek-coder-33b"),
+        ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
+        ("moonshotai/Kimi-K2.5", "neuralwatt-kimi-k2.5"),
+        ("Qwen/Qwen3-32B", "neuralwatt-qwen3-32b"),
+        ("some-model-chat", "neuralwatt-some-model"),
+        ("org/Model_Name-Base", "neuralwatt-model-name"),
+    ],
+)
+def test_model_id_from_name(api_id, expected):
+    assert model_id_from_name(api_id) == expected
+
+
+# --- fetch_models tests ---
+
+
+def test_fetch_models_success(httpx_mock):
+    """Dynamic discovery returns models from the API."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        json={
+            "object": "list",
+            "data": [
+                {"id": "Qwen/Qwen3-32B", "object": "model"},
+                {"id": "deepseek-ai/deepseek-coder-33b-instruct", "object": "model"},
+            ],
+        },
+    )
+
+    models = fetch_models("test-key")
+    assert len(models) == 2
+    assert "neuralwatt-qwen3-32b" in models
+    assert models["neuralwatt-qwen3-32b"] == "Qwen/Qwen3-32B"
+    assert "neuralwatt-deepseek-coder-33b" in models
+
+
+def test_fetch_models_http_error(httpx_mock):
+    """fetch_models raises on non-200 responses."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        status_code=401,
+    )
+
+    with pytest.raises(Exception):
+        fetch_models("bad-key")
+
+
 # --- Model registration tests ---
 
 
-def test_models_registered():
-    """Verify all models are registered with llm."""
-    registered = []
-    register_models(registered.append)
+def test_register_models_dynamic(httpx_mock):
+    """register_models uses API discovery when available."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        json={
+            "object": "list",
+            "data": [
+                {"id": "Qwen/Qwen3-32B", "object": "model"},
+                {"id": "moonshotai/Kimi-K2.5", "object": "model"},
+            ],
+        },
+    )
 
-    assert len(registered) == 3
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value="test-key"):
+        register_models(registered.append)
+
     model_ids = {m.model_id for m in registered}
-    assert model_ids == {"neuralwatt-qwen", "neuralwatt-deepseek", "neuralwatt-gpt-oss"}
+    assert "neuralwatt-qwen3-32b" in model_ids
+    assert "neuralwatt-kimi-k2.5" in model_ids
+
+
+def test_register_models_fallback_on_no_key():
+    """Falls back to hardcoded models when no API key is set."""
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value=""):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+
+
+def test_register_models_fallback_on_connect_error():
+    """Falls back to hardcoded models when the API is unreachable."""
+    registered = []
+    with (
+        patch("llm_neuralwatt.llm.get_key", return_value="test-key"),
+        patch(
+            "llm_neuralwatt.fetch_models",
+            side_effect=httpx.ConnectError("connection refused"),
+        ),
+    ):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+
+
+def test_register_models_fallback_on_auth_error(caplog):
+    """Falls back with a warning when the API returns an auth error."""
+    mock_response = Mock()
+    mock_response.status_code = 401
+    registered = []
+    with (
+        patch("llm_neuralwatt.llm.get_key", return_value="bad-key"),
+        patch(
+            "llm_neuralwatt.fetch_models",
+            side_effect=httpx.HTTPStatusError(
+                "Unauthorized", request=Mock(), response=mock_response
+            ),
+        ),
+    ):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+    assert "HTTP 401" in caplog.text
 
 
 def test_model_attributes():

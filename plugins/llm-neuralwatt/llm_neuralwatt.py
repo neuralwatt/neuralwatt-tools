@@ -6,6 +6,8 @@ energy consumption metadata that Neuralwatt returns with each request.
 """
 
 import json
+import logging
+import re
 from typing import Iterator, Optional
 
 import click
@@ -13,17 +15,59 @@ import httpx
 import llm
 from pydantic import Field
 
+logger = logging.getLogger(__name__)
+
 # API configuration
 API_BASE = "https://api.neuralwatt.com/v1"
 USER_AGENT = "llm-neuralwatt/0.1.0"
 TIMEOUT_SECONDS = 300.0
+DISCOVERY_TIMEOUT_SECONDS = 5.0
 
-# Available models on Neuralwatt
-MODELS = {
+# Fallback models used when the /v1/models endpoint is unreachable.
+FALLBACK_MODELS = {
     "neuralwatt-qwen": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     "neuralwatt-deepseek": "deepseek-ai/deepseek-coder-33b-instruct",
     "neuralwatt-gpt-oss": "openai/gpt-oss-20b",
 }
+
+
+def model_id_from_name(api_model_id: str) -> str:
+    """Derive a short llm model ID from a Neuralwatt API model name.
+
+    Examples:
+        "Qwen/Qwen3-Coder-480B-A35B-Instruct" -> "neuralwatt-qwen3-coder-480b"
+        "deepseek-ai/deepseek-coder-33b-instruct" -> "neuralwatt-deepseek-coder-33b"
+        "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
+        "moonshotai/Kimi-K2.5" -> "neuralwatt-kimi-k2.5"
+    """
+    # Use the part after the org prefix (or the whole string if no slash).
+    name = api_model_id.split("/", 1)[-1]
+    # Strip common suffixes that add noise.
+    name = re.sub(r"[-_](instruct|chat|base)$", "", name, flags=re.IGNORECASE)
+    # Lowercase, collapse whitespace/underscores to hyphens.
+    name = re.sub(r"[_\s]+", "-", name).lower()
+    return f"neuralwatt-{name}"
+
+
+def fetch_models(api_key: str) -> dict[str, str]:
+    """Fetch available models from the Neuralwatt /v1/models endpoint.
+
+    Returns a dict mapping llm model IDs to API model names.
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": USER_AGENT,
+    }
+    with httpx.Client(timeout=DISCOVERY_TIMEOUT_SECONDS) as client:
+        r = client.get(f"{API_BASE}/models", headers=headers)
+        r.raise_for_status()
+
+    models = {}
+    for entry in r.json().get("data", []):
+        api_name = entry["id"]
+        model_id = model_id_from_name(api_name)
+        models[model_id] = api_name
+    return models
 
 
 def format_scaled(value: float, unit: str) -> str:
@@ -223,6 +267,22 @@ class NeuralwattChat(llm.Model):
 
 @llm.hookimpl
 def register_models(register):
-    """Register Neuralwatt models."""
-    for model_id, model_name in MODELS.items():
+    """Register Neuralwatt models, discovering them from the API when possible."""
+    models = None
+    key = llm.get_key("", "neuralwatt", "NEURALWATT_API_KEY")
+    if key:
+        try:
+            models = fetch_models(key)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Neuralwatt model discovery failed (HTTP %s). Using fallback models.",
+                exc.response.status_code,
+            )
+        except httpx.ConnectError:
+            logger.debug("Neuralwatt API unreachable. Using fallback models.")
+
+    if not models:
+        models = FALLBACK_MODELS
+
+    for model_id, model_name in models.items():
         register(NeuralwattChat(model_id, model_name))
