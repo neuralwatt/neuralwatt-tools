@@ -179,8 +179,8 @@ def test_compute_perf_zero_duration():
         ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
         ("mistralai/Devstral-Small-2-24B-Instruct-2512", "neuralwatt-devstral-small-2-24b-instruct-2512"),
         ("Qwen/Qwen3.5-35B-A3B", "neuralwatt-qwen3.5-35b-a3b"),
-        ("some-model-chat", "neuralwatt-some-model"),
-        ("org/Model_Name-Base", "neuralwatt-model-name"),
+        ("some-model-chat", "neuralwatt-some-model-chat"),
+        ("org/Model_Name-Base", "neuralwatt-model-name-base"),
     ],
 )
 def test_model_id_from_name(api_id, expected):
@@ -267,6 +267,22 @@ def test_register_models_fallback_on_connect_error():
         patch(
             "llm_neuralwatt.fetch_models",
             side_effect=httpx.ConnectError("connection refused"),
+        ),
+    ):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+
+
+def test_register_models_fallback_on_timeout():
+    """Falls back to hardcoded models when the API times out."""
+    registered = []
+    with (
+        patch("llm_neuralwatt.llm.get_key", return_value="test-key"),
+        patch(
+            "llm_neuralwatt.fetch_models",
+            side_effect=httpx.TimeoutException("timed out"),
         ),
     ):
         register_models(registered.append)

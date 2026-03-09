@@ -39,12 +39,10 @@ def model_id_from_name(api_model_id: str) -> str:
         "Qwen/Qwen3.5-397B-A17B-FP8" -> "neuralwatt-qwen3.5-397b-a17b-fp8"
         "moonshotai/Kimi-K2.5" -> "neuralwatt-kimi-k2.5"
         "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
-        "mistralai/Devstral-Small-2-24B-Instruct-2512" -> "neuralwatt-devstral-small-2-24b-instruct-2512"
+        "meta-llama/Llama-3-70B-Instruct" -> "neuralwatt-llama-3-70b-instruct"
     """
     # Use the part after the org prefix (or the whole string if no slash).
     name = api_model_id.split("/", 1)[-1]
-    # Strip common suffixes that add noise.
-    name = re.sub(r"[-_](instruct|chat|base)$", "", name, flags=re.IGNORECASE)
     # Lowercase, collapse whitespace/underscores to hyphens.
     name = re.sub(r"[_\s]+", "-", name).lower()
     return f"neuralwatt-{name}"
@@ -263,7 +261,8 @@ class NeuralwattChat(llm.Model):
         chunk_id = None
         t_first_any = None
         t_first_content = None
-        reasoning_token_count = 0
+        # Approximation: counts SSE chunks, not tokens (some APIs batch).
+        reasoning_chunk_count = 0
 
         with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
             t_start = time.monotonic()
@@ -314,7 +313,7 @@ class NeuralwattChat(llm.Model):
                             delta = chunk["choices"][0].get("delta", {})
                             # Count reasoning tokens (delta.reasoning / delta.reasoning_content).
                             if delta.get("reasoning") or delta.get("reasoning_content"):
-                                reasoning_token_count += 1
+                                reasoning_chunk_count += 1
                                 if t_first_any is None:
                                     t_first_any = time.monotonic()
                             content = delta.get("content", "")
@@ -329,9 +328,9 @@ class NeuralwattChat(llm.Model):
         ttft_ms = (t_first_any - t_start) * 1000 if t_first_any else None
         # TFAT: first visible content token (only set when model used thinking).
         tfat_ms = None
-        if reasoning_token_count > 0 and t_first_content:
+        if reasoning_chunk_count > 0 and t_first_content:
             tfat_ms = (t_first_content - t_start) * 1000
-        perf = compute_perf(usage, energy, ttft_ms, tfat_ms, reasoning_token_count)
+        perf = compute_perf(usage, energy, ttft_ms, tfat_ms, reasoning_chunk_count)
 
         response.response_json = {
             "id": chunk_id,
@@ -358,7 +357,7 @@ def register_models(register):
                 "Neuralwatt model discovery failed (HTTP %s). Using fallback models.",
                 exc.response.status_code,
             )
-        except httpx.ConnectError:
+        except (httpx.ConnectError, httpx.TimeoutException):
             logger.debug("Neuralwatt API unreachable. Using fallback models.")
 
     if not models:
