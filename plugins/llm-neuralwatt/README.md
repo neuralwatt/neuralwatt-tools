@@ -31,30 +31,28 @@ llm keys set neuralwatt
 
 ## Available Models
 
-- `neuralwatt-qwen` - Qwen/Qwen3.5-397B-A17B-FP8
-- `neuralwatt-kimi` - moonshotai/Kimi-K2.5
-- `neuralwatt-gpt-oss` - openai/gpt-oss-20b
+Models are discovered automatically from the Neuralwatt API at startup. Run `llm models | grep neuralwatt` to see what's available. Model IDs are derived from the API names, e.g. `Qwen/Qwen3.5-397B-A17B-FP8` becomes `neuralwatt-qwen3.5-397b-a17b-fp8`.
 
-Additional models are discovered dynamically from the `/v1/models` endpoint at startup.
+If the API is unreachable (no key set, network down), a small set of fallback models is registered instead.
 
 ## Usage
 
 ```bash
-llm -m neuralwatt-qwen "Explain what a monad is"
+llm -m neuralwatt-qwen3.5-397b-a17b-fp8 "Explain what a monad is"
 ```
 
 ### Show Energy After Response
 
-Display energy usage after each response with `-o show_energy true`:
+Pass `-o show_energy true` to print energy and performance stats after each response:
 
 ```bash
-llm -m neuralwatt-qwen "What is a closure?" -o show_energy true
+llm -m neuralwatt-qwen3.5-397b-a17b-fp8 "What is a closure?" -o show_energy true
 ```
 
 ```
 A closure is a function that captures variables from its enclosing scope...
 
-⚡ 45.20J | 58.00W | 0.78s | 12.60mWh
+⚡ 45.20J | 58.00W | 0.78s | 12.60mWh | 84.3 tok/s | TTFT 261ms
 ```
 
 ### Chat Mode
@@ -62,7 +60,7 @@ A closure is a function that captures variables from its enclosing scope...
 Energy is shown after each assistant message:
 
 ```bash
-llm chat -m neuralwatt-kimi -o show_energy true
+llm chat -m neuralwatt-kimi-k2.5 -o show_energy true
 ```
 
 ```
@@ -71,18 +69,17 @@ A Hashmap is a data structure that implements an associative array,
 mapping keys to values. It uses hash functions to compute an index
 where values are stored, enabling fast O(1) average-case lookups...
 
-⚡ 1.10kJ | 126.40W | 8.69s | 305.12mWh
+⚡ 1.10kJ | 126.40W | 8.69s | 305.12mWh | 52.1 tok/s | TTFT 185ms
 
 > What about a binary search tree?
 A Binary Search Tree (BST) is a node-based data structure where the
 left subtree contains only nodes with keys less than the parent, and
 the right subtree contains only nodes with keys greater...
 
-⚡ 2.81kJ | 260.20W | 17.70s | 780.75mWh
+⚡ 2.81kJ | 260.20W | 17.70s | 780.75mWh | 61.4 tok/s | TTFT 203ms
 ```
 
-Energy is printed to stderr so it doesn't pollute the response or conversation history.
-Longer responses consume more energy—the BST explanation used ~2.5x the energy of the hashmap answer.
+Energy and perf stats go to stderr so they don't become part of the conversation history. Longer responses consume more energy (the BST explanation used ~2.5x the energy of the hashmap answer).
 
 ### Unit Scaling
 
@@ -124,7 +121,7 @@ print(f'Time:   {e.get(\"duration_seconds\", 0):.3f} s')
 
 ## Why Energy Tracking?
 
-Neuralwatt provides transparency into the environmental cost of AI inference. By logging energy data alongside responses, you can track cumulative energy use over time, compare efficiency across models, and build awareness of AI's carbon footprint.
+Every inference request uses real energy. Neuralwatt measures it per-request and returns the data in the API response. This plugin logs that data so you can see your cumulative energy use over time and compare efficiency across models.
 
 ## Development
 

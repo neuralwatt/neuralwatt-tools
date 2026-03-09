@@ -2,7 +2,7 @@
 
 [Claude Code](https://github.com/anthropics/claude-code) is Anthropic's official AI coding CLI. Using [claude-code-router](https://github.com/musistudio/claude-code-router), you can route requests to Neuralwatt's OpenAI-compatible API.
 
-> **Note:** Using Claude Code with non-Anthropic models is not officially supported by Anthropic. This recipe documents an alternative configuration for users who want to use the Claude Code interface with Neuralwatt's models.
+> **Note:** Using Claude Code with non-Anthropic models is not officially supported by Anthropic.
 
 ## Prerequisites
 

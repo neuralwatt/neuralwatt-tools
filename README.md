@@ -16,7 +16,7 @@ Tools and recipes for using the [Neuralwatt](https://neuralwatt.com) inference A
 
 **OpenAI-compatible API.** Neuralwatt exposes an OpenAI-compatible endpoint (`https://api.neuralwatt.com/v1`), so it works with any tool that supports custom base URLs: coding assistants like [aider](https://aider.chat) and [continue.dev](https://continue.dev), CLI tools like [llm](https://llm.datasette.io), and many editor plugins.
 
-**Energy reporting.** Unlike other inference providers, Neuralwatt returns energy consumption data with every API response. You get not just token counts, but actual energy use:
+**Energy reporting.** Neuralwatt returns energy consumption data with every API response, alongside the standard token counts:
 
 ```json
 {
@@ -33,8 +33,6 @@ Tools and recipes for using the [Neuralwatt](https://neuralwatt.com) inference A
   }
 }
 ```
-
-This gives you transparency into the environmental cost of your AI usage.
 
 ## Quick Start
 
