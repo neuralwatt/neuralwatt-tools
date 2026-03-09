@@ -8,17 +8,16 @@ This plugin captures the energy consumption metadata that Neuralwatt returns wit
 
 ## Installation
 
-Clone this repo and install from source:
+Install directly from GitHub:
 
 ```bash
-git clone https://github.com/neuralwatt/neuralwatt-tools.git
-llm install -e neuralwatt-tools/plugins/llm-neuralwatt
+llm install "llm-neuralwatt @ git+https://github.com/neuralwatt/neuralwatt-tools.git#subdirectory=plugins/llm-neuralwatt"
 ```
 
-Or if you already have the repo:
+Or install from a local clone (run from the repo root):
 
 ```bash
-llm install -e /path/to/neuralwatt-tools/plugins/llm-neuralwatt
+llm install -e plugins/llm-neuralwatt
 ```
 
 ## Configuration

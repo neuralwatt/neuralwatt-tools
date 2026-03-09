@@ -8,6 +8,7 @@ energy consumption metadata that Neuralwatt returns with each request.
 import json
 import logging
 import re
+import time
 from typing import Iterator, Optional
 
 import click
@@ -86,8 +87,8 @@ def format_scaled(value: float, unit: str) -> str:
         return f"0{unit}"
 
 
-def print_energy(energy: dict) -> None:
-    """Print energy data to stderr (so it doesn't become part of conversation history)."""
+def print_stats(energy: dict, perf: dict) -> None:
+    """Print energy and performance stats to stderr."""
     joules = energy.get("energy_joules", 0)
     watts = energy.get("avg_power_watts", 0)
     duration = energy.get("duration_seconds", 0)
@@ -99,8 +100,60 @@ def print_energy(energy: dict) -> None:
         f"{duration:.2f}s",
         format_scaled(wh, "Wh"),
     ]
+
+    tok_s = perf.get("output_tok_s")
+    if tok_s is not None:
+        parts.append(f"{tok_s:.1f} tok/s")
+
+    ttft_ms = perf.get("ttft_ms")
+    if ttft_ms is not None:
+        parts.append(f"TTFT {ttft_ms:.0f}ms")
+
+    # Show TFAT only when it differs from TTFT (i.e. model used thinking).
+    tfat_ms = perf.get("tfat_ms")
+    if tfat_ms is not None and ttft_ms is not None and tfat_ms != ttft_ms:
+        parts.append(f"TFAT {tfat_ms:.0f}ms")
+
+    reasoning_tokens = perf.get("reasoning_tokens")
+    if reasoning_tokens:
+        parts.append(f"{reasoning_tokens} thinking")
+
     line = f"⚡ {' | '.join(parts)}"
     click.echo(f"\n{click.style(line, fg='green')}", err=True)
+
+
+def compute_perf(
+    usage: Optional[dict],
+    energy: Optional[dict],
+    ttft_ms: Optional[float],
+    tfat_ms: Optional[float] = None,
+    reasoning_tokens: int = 0,
+) -> dict:
+    """Compute performance metrics from usage, energy, and client-side timing.
+
+    Args:
+        ttft_ms: Time to first token (reasoning or content, whichever comes first).
+        tfat_ms: Time to first answer token (first visible content token).
+                 Only differs from ttft_ms when the model uses thinking.
+        reasoning_tokens: Number of reasoning tokens counted during streaming.
+            When > 0, tok/s is based on visible content tokens only.
+    """
+    perf = {}
+    if ttft_ms is not None:
+        perf["ttft_ms"] = ttft_ms
+    if tfat_ms is not None:
+        perf["tfat_ms"] = tfat_ms
+
+    completion_tokens = (usage or {}).get("completion_tokens")
+    duration = (energy or {}).get("duration_seconds")
+    if completion_tokens and duration and duration > 0:
+        visible_tokens = completion_tokens - reasoning_tokens
+        perf["output_tok_s"] = visible_tokens / duration
+
+    if reasoning_tokens > 0:
+        perf["reasoning_tokens"] = reasoning_tokens
+
+    return perf
 
 
 class NeuralwattChat(llm.Model):
@@ -184,18 +237,22 @@ class NeuralwattChat(llm.Model):
             data = r.json()
 
         content = data["choices"][0]["message"]["content"]
+        usage = data.get("usage")
         energy = data.get("energy")
+        # No TTFT for non-streaming — the client gets everything at once.
+        perf = compute_perf(usage, energy, ttft_ms=None)
 
         response.response_json = {
             "id": data.get("id"),
             "model": data.get("model"),
-            "usage": data.get("usage"),
+            "usage": usage,
             "energy": energy,
+            "perf": perf,
         }
 
         yield content
         if show_energy and energy:
-            print_energy(energy)
+            print_stats(energy, perf)
 
     def _stream(
         self, headers: dict, body: dict, response: llm.Response, show_energy: bool
@@ -204,8 +261,12 @@ class NeuralwattChat(llm.Model):
         usage = None
         energy = None
         chunk_id = None
+        t_first_any = None
+        t_first_content = None
+        reasoning_token_count = 0
 
         with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
+            t_start = time.monotonic()
             with client.stream(
                 "POST", f"{API_BASE}/chat/completions", headers=headers, json=body
             ) as r:
@@ -250,19 +311,38 @@ class NeuralwattChat(llm.Model):
                             energy = chunk["energy"]
 
                         if chunk.get("choices"):
-                            content = chunk["choices"][0].get("delta", {}).get("content", "")
+                            delta = chunk["choices"][0].get("delta", {})
+                            # Count reasoning tokens (delta.reasoning / delta.reasoning_content).
+                            if delta.get("reasoning") or delta.get("reasoning_content"):
+                                reasoning_token_count += 1
+                                if t_first_any is None:
+                                    t_first_any = time.monotonic()
+                            content = delta.get("content", "")
                             if content:
+                                if t_first_any is None:
+                                    t_first_any = time.monotonic()
+                                if t_first_content is None:
+                                    t_first_content = time.monotonic()
                                 yield content
+
+        # TTFT: first token of any kind (reasoning or content).
+        ttft_ms = (t_first_any - t_start) * 1000 if t_first_any else None
+        # TFAT: first visible content token (only set when model used thinking).
+        tfat_ms = None
+        if reasoning_token_count > 0 and t_first_content:
+            tfat_ms = (t_first_content - t_start) * 1000
+        perf = compute_perf(usage, energy, ttft_ms, tfat_ms, reasoning_token_count)
 
         response.response_json = {
             "id": chunk_id,
             "model": self._model_name,
             "usage": usage,
             "energy": energy,
+            "perf": perf,
         }
 
         if show_energy and energy:
-            print_energy(energy)
+            print_stats(energy, perf)
 
 
 @llm.hookimpl
