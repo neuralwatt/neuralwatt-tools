@@ -177,7 +177,10 @@ def test_compute_perf_zero_duration():
         ("Qwen/Qwen3.5-397B-A17B-FP8", "neuralwatt-qwen3.5-397b-a17b-fp8"),
         ("moonshotai/Kimi-K2.5", "neuralwatt-kimi-k2.5"),
         ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
-        ("mistralai/Devstral-Small-2-24B-Instruct-2512", "neuralwatt-devstral-small-2-24b-instruct-2512"),
+        (
+            "mistralai/Devstral-Small-2-24B-Instruct-2512",
+            "neuralwatt-devstral-small-2-24b-instruct-2512",
+        ),
         ("Qwen/Qwen3.5-35B-A3B", "neuralwatt-qwen3.5-35b-a3b"),
         ("some-model-chat", "neuralwatt-some-model-chat"),
         ("org/Model_Name-Base", "neuralwatt-model-name-base"),
@@ -426,7 +429,8 @@ def test_stream_with_reasoning_tokens(httpx_mock):
     sse_response = (
         'data: {"id":"r1","choices":[{"delta":{"role":"assistant"}}]}\n\n'
         'data: {"id":"r1","choices":[{"delta":{"reasoning":"The","reasoning_content":"The"}}]}\n\n'
-        'data: {"id":"r1","choices":[{"delta":{"reasoning":" answer","reasoning_content":" answer"}}]}\n\n'
+        'data: {"id":"r1","choices":[{"delta":{"reasoning":" answer",'
+        '"reasoning_content":" answer"}}]}\n\n'
         'data: {"id":"r1","choices":[{"delta":{"reasoning":" is","reasoning_content":" is"}}]}\n\n'
         'data: {"id":"r1","choices":[{"delta":{"content":"555"}}]}\n\n'
         'data: {"id":"r1","choices":[{"delta":{"content":"."}}]}\n\n'
