@@ -70,7 +70,7 @@ require("codecompanion").setup({
         url = "https://api.neuralwatt.com/v1/chat/completions",
         env = { api_key = "NEURALWATT_API_KEY" },
         schema = {
-          model = { default = "Qwen/Qwen3-Coder-480B-A35B-Instruct" },
+          model = { default = "Qwen/Qwen3.5-397B-A17B-FP8" },
         },
       })
     end,
@@ -89,7 +89,7 @@ require("avante").setup({
   provider = "openai",
   openai = {
     endpoint = "https://api.neuralwatt.com/v1",
-    model = "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    model = "Qwen/Qwen3.5-397B-A17B-FP8",
     api_key_name = "NEURALWATT_API_KEY",
   },
 })
@@ -99,7 +99,7 @@ require("avante").setup({
 
 ```lua
 require("gen").setup({
-  model = "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  model = "Qwen/Qwen3.5-397B-A17B-FP8",
   host = "api.neuralwatt.com",
   port = 443,
   command = function(options)

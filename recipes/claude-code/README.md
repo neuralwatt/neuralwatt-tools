@@ -33,12 +33,12 @@ export NEURALWATT_API_KEY="your-api-key-here"
       "name": "neuralwatt",
       "api_base_url": "https://api.neuralwatt.com/v1/chat/completions",
       "api_key_env": "NEURALWATT_API_KEY",
-      "models": ["Qwen/Qwen3-Coder-480B-A35B-Instruct"]
+      "models": ["Qwen/Qwen3.5-397B-A17B-FP8"]
     }
   ],
   "Router": {
-    "default": "neuralwatt,Qwen/Qwen3-Coder-480B-A35B-Instruct",
-    "background": "neuralwatt,Qwen/Qwen3-Coder-480B-A35B-Instruct"
+    "default": "neuralwatt,Qwen/Qwen3.5-397B-A17B-FP8",
+    "background": "neuralwatt,Qwen/Qwen3.5-397B-A17B-FP8"
   }
 }
 ```

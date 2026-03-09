@@ -174,11 +174,11 @@ def test_compute_perf_zero_duration():
 @pytest.mark.parametrize(
     "api_id,expected",
     [
-        ("Qwen/Qwen3-Coder-480B-A35B-Instruct", "neuralwatt-qwen3-coder-480b-a35b"),
-        ("deepseek-ai/deepseek-coder-33b-instruct", "neuralwatt-deepseek-coder-33b"),
-        ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
+        ("Qwen/Qwen3.5-397B-A17B-FP8", "neuralwatt-qwen3.5-397b-a17b-fp8"),
         ("moonshotai/Kimi-K2.5", "neuralwatt-kimi-k2.5"),
-        ("Qwen/Qwen3-32B", "neuralwatt-qwen3-32b"),
+        ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
+        ("mistralai/Devstral-Small-2-24B-Instruct-2512", "neuralwatt-devstral-small-2-24b-instruct-2512"),
+        ("Qwen/Qwen3.5-35B-A3B", "neuralwatt-qwen3.5-35b-a3b"),
         ("some-model-chat", "neuralwatt-some-model"),
         ("org/Model_Name-Base", "neuralwatt-model-name"),
     ],
@@ -198,17 +198,17 @@ def test_fetch_models_success(httpx_mock):
         json={
             "object": "list",
             "data": [
-                {"id": "Qwen/Qwen3-32B", "object": "model"},
-                {"id": "deepseek-ai/deepseek-coder-33b-instruct", "object": "model"},
+                {"id": "Qwen/Qwen3.5-397B-A17B-FP8", "object": "model"},
+                {"id": "moonshotai/Kimi-K2.5", "object": "model"},
             ],
         },
     )
 
     models = fetch_models("test-key")
     assert len(models) == 2
-    assert "neuralwatt-qwen3-32b" in models
-    assert models["neuralwatt-qwen3-32b"] == "Qwen/Qwen3-32B"
-    assert "neuralwatt-deepseek-coder-33b" in models
+    assert "neuralwatt-qwen3.5-397b-a17b-fp8" in models
+    assert models["neuralwatt-qwen3.5-397b-a17b-fp8"] == "Qwen/Qwen3.5-397B-A17B-FP8"
+    assert "neuralwatt-kimi-k2.5" in models
 
 
 def test_fetch_models_http_error(httpx_mock):
@@ -234,7 +234,7 @@ def test_register_models_dynamic(httpx_mock):
         json={
             "object": "list",
             "data": [
-                {"id": "Qwen/Qwen3-32B", "object": "model"},
+                {"id": "Qwen/Qwen3.5-397B-A17B-FP8", "object": "model"},
                 {"id": "moonshotai/Kimi-K2.5", "object": "model"},
             ],
         },
@@ -245,7 +245,7 @@ def test_register_models_dynamic(httpx_mock):
         register_models(registered.append)
 
     model_ids = {m.model_id for m in registered}
-    assert "neuralwatt-qwen3-32b" in model_ids
+    assert "neuralwatt-qwen3.5-397b-a17b-fp8" in model_ids
     assert "neuralwatt-kimi-k2.5" in model_ids
 
 
@@ -298,10 +298,10 @@ def test_register_models_fallback_on_auth_error(caplog):
 
 def test_model_attributes():
     """Verify model has correct attributes."""
-    model = NeuralwattChat("neuralwatt-qwen", "Qwen/Qwen3-Coder-480B-A35B-Instruct")
+    model = NeuralwattChat("neuralwatt-qwen", "Qwen/Qwen3.5-397B-A17B-FP8")
 
     assert model.model_id == "neuralwatt-qwen"
-    assert model._model_name == "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+    assert model._model_name == "Qwen/Qwen3.5-397B-A17B-FP8"
     assert model.needs_key == "neuralwatt"
     assert model.can_stream is True
 

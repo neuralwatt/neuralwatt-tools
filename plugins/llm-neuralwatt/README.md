@@ -31,9 +31,11 @@ llm keys set neuralwatt
 
 ## Available Models
 
-- `neuralwatt-qwen` - Qwen/Qwen3-Coder-480B-A35B-Instruct
-- `neuralwatt-deepseek` - deepseek-ai/deepseek-coder-33b-instruct
+- `neuralwatt-qwen` - Qwen/Qwen3.5-397B-A17B-FP8
+- `neuralwatt-kimi` - moonshotai/Kimi-K2.5
 - `neuralwatt-gpt-oss` - openai/gpt-oss-20b
+
+Additional models are discovered dynamically from the `/v1/models` endpoint at startup.
 
 ## Usage
 
@@ -60,7 +62,7 @@ A closure is a function that captures variables from its enclosing scope...
 Energy is shown after each assistant message:
 
 ```bash
-llm chat -m neuralwatt-deepseek -o show_energy true
+llm chat -m neuralwatt-kimi -o show_energy true
 ```
 
 ```

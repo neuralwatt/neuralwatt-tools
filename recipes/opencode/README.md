@@ -22,15 +22,15 @@ export NEURALWATT_API_KEY="your-api-key-here"
 
 ```json
 {
-  "model": "neuralwatt/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "model": "neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8",
   "provider": {
     "neuralwatt": {
       "name": "Neuralwatt",
       "npm": "@ai-sdk/openai-compatible",
       "models": {
-        "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
-          "name": "Qwen3 Coder 480B",
-          "limit": { "context": 131072, "output": 32768 }
+        "Qwen/Qwen3.5-397B-A17B-FP8": {
+          "name": "Qwen3.5 397B",
+          "limit": { "context": 262144, "output": 32768 }
         }
       },
       "options": {

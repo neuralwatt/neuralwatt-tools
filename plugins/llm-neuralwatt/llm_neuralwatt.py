@@ -26,8 +26,8 @@ DISCOVERY_TIMEOUT_SECONDS = 5.0
 
 # Fallback models used when the /v1/models endpoint is unreachable.
 FALLBACK_MODELS = {
-    "neuralwatt-qwen": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-    "neuralwatt-deepseek": "deepseek-ai/deepseek-coder-33b-instruct",
+    "neuralwatt-qwen": "Qwen/Qwen3.5-397B-A17B-FP8",
+    "neuralwatt-kimi": "moonshotai/Kimi-K2.5",
     "neuralwatt-gpt-oss": "openai/gpt-oss-20b",
 }
 
@@ -36,10 +36,10 @@ def model_id_from_name(api_model_id: str) -> str:
     """Derive a short llm model ID from a Neuralwatt API model name.
 
     Examples:
-        "Qwen/Qwen3-Coder-480B-A35B-Instruct" -> "neuralwatt-qwen3-coder-480b"
-        "deepseek-ai/deepseek-coder-33b-instruct" -> "neuralwatt-deepseek-coder-33b"
-        "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
+        "Qwen/Qwen3.5-397B-A17B-FP8" -> "neuralwatt-qwen3.5-397b-a17b-fp8"
         "moonshotai/Kimi-K2.5" -> "neuralwatt-kimi-k2.5"
+        "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
+        "mistralai/Devstral-Small-2-24B-Instruct-2512" -> "neuralwatt-devstral-small-2-24b-instruct-2512"
     """
     # Use the part after the org prefix (or the whole string if no slash).
     name = api_model_id.split("/", 1)[-1]
