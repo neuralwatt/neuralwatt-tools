@@ -1,0 +1,54 @@
+// OpenClaw config for Neuralwatt inference
+// Copy to ~/.openclaw/openclaw.json and adjust to taste.
+// JSON5 format: comments and trailing commas are allowed.
+{
+  // Set NEURALWATT_API_KEY in your environment or inline it here:
+  // env: { NEURALWATT_API_KEY: "your-api-key-here" },
+
+  identity: {
+    name: "Assistant",
+    theme: "helpful assistant",
+  },
+
+  models: {
+    mode: "merge",
+    providers: {
+      neuralwatt: {
+        baseUrl: "https://api.neuralwatt.com/v1",
+        apiKey: "NEURALWATT_API_KEY",
+        api: "openai-completions",
+        models: [
+          {
+            id: "Qwen/Qwen3.5-397B-A17B-FP8",
+            name: "Qwen3.5 397B",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 131072,
+            maxTokens: 32768,
+          },
+        ],
+      },
+    },
+  },
+
+  agents: {
+    defaults: {
+      model: { primary: "neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8" },
+    },
+  },
+
+  // Uncomment and configure the channels you want:
+
+  // channels: {
+  //   telegram: {
+  //     token: "TELEGRAM_BOT_TOKEN",
+  //   },
+  //   discord: {
+  //     token: "DISCORD_BOT_TOKEN",
+  //   },
+  //   whatsapp: {
+  //     allowFrom: ["+15555550123"],
+  //   },
+  // },
+}
