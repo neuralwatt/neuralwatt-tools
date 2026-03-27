@@ -37,13 +37,6 @@ openclaw onboard --non-interactive --accept-risk \
 
 This creates the config, stores the API key, and installs the gateway as a background service in one step.
 
-The onboarding wizard uses conservative defaults (16k context, 4k max output). After it finishes, update the limits for Qwen3.5 397B:
-
-```bash
-openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
-openclaw config set models.providers.neuralwatt.models.0.maxTokens 32768 --strict-json
-```
-
 Verify everything is working:
 
 ```bash
@@ -52,6 +45,14 @@ openclaw models list
 ```
 
 You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789`.
+
+Optionally, raise the model limits from the onboarding defaults (16k context, 4k max output) to the full Qwen3.5 397B capacity:
+
+```bash
+openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
+openclaw config set models.providers.neuralwatt.models.0.maxTokens 32768 --strict-json
+openclaw gateway restart
+```
 
 ### Alternative: manual config
 
