@@ -27,6 +27,7 @@ Run `openclaw onboard` with your Neuralwatt API key:
 openclaw onboard --non-interactive --accept-risk \
   --install-daemon \
   --auth-choice custom-api-key \
+  --custom-provider-id neuralwatt \
   --custom-base-url "https://api.neuralwatt.com/v1" \
   --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
   --custom-compatibility openai \
