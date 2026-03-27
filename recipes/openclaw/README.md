@@ -27,14 +27,54 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 export NEURALWATT_API_KEY="your-api-key-here"
 ```
 
-**2. Copy the example config:**
+**2. Create** `~/.openclaw/openclaw.json`:
 
 ```bash
 mkdir -p ~/.openclaw
-cp openclaw.json ~/.openclaw/openclaw.json
 ```
 
-The example [`openclaw.json`](openclaw.json) alongside this README has everything pre-configured: gateway mode, provider, model with correct context window (128k) and output limits (32k).
+```json5
+// ~/.openclaw/openclaw.json
+{
+  gateway: {
+    mode: "local",
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      neuralwatt: {
+        baseUrl: "https://api.neuralwatt.com/v1",
+        // apiKey is registered via step 3 below
+        api: "openai-completions",
+        models: [
+          {
+            id: "Qwen/Qwen3.5-397B-A17B-FP8",
+            name: "Qwen3.5 397B",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 131072,
+            maxTokens: 32768,
+          },
+        ],
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8" },
+    },
+    list: [
+      {
+        id: "main",
+        identity: { name: "Assistant", theme: "helpful assistant" },
+      },
+    ],
+  },
+}
+```
+
+A copy-pasteable version is also available as [`openclaw.json`](openclaw.json).
 
 **3. Register your API key with OpenClaw:**
 
