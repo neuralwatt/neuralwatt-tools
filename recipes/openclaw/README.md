@@ -30,10 +30,13 @@ openclaw onboard --install-daemon \
   --auth-choice custom-api-key \
   --custom-base-url "https://api.neuralwatt.com/v1" \
   --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
-  --custom-compatibility openai
+  --custom-compatibility openai \
+  --custom-api-key "$NEURALWATT_API_KEY"
 ```
 
-When prompted, paste your Neuralwatt API key.
+When prompted, paste your Neuralwatt API key (or pass it via `--custom-api-key` as shown above).
+
+> **Note:** The onboard wizard uses conservative defaults (16k context, 4k max output). For the full 128k context window our API supports, use Option B or manually edit `~/.openclaw/openclaw.json` after onboarding to set `contextWindow: 131072` and `maxTokens: 32768`.
 
 ### Option B: Manual config
 
@@ -43,16 +46,28 @@ When prompted, paste your Neuralwatt API key.
 export NEURALWATT_API_KEY="your-api-key-here"
 ```
 
-**2. Edit** `~/.openclaw/openclaw.json` (JSON5, comments allowed):
+**2. Register the API key with OpenClaw** so the gateway service can access it:
+
+```bash
+openclaw config set models.providers.neuralwatt.apiKey \
+  --ref-provider default --ref-source env --ref-id NEURALWATT_API_KEY
+```
+
+> **Why not just put the key in the JSON?** OpenClaw resolves secrets through a ref system, not bare strings. A bare `"apiKey": "NEURALWATT_API_KEY"` is sent literally and will return 401. The ref approach also makes the key available to the systemd gateway service, which doesn't inherit your shell environment.
+
+**3. Edit** `~/.openclaw/openclaw.json` (JSON5, comments allowed):
 
 ```json5
 {
+  gateway: {
+    mode: "local",
+  },
   models: {
     mode: "merge",
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",
-        apiKey: "NEURALWATT_API_KEY",
+        // apiKey is set via `openclaw config set` (step 2)
         api: "openai-completions",
         models: [
           {
@@ -78,13 +93,13 @@ export NEURALWATT_API_KEY="your-api-key-here"
 
 A complete example config (with identity and channels) is in [`openclaw.json`](openclaw.json) alongside this README.
 
-**3. Start the gateway:**
+**4. Start the gateway:**
 
 ```bash
 openclaw gateway start
 ```
 
-**4. Verify:**
+**5. Verify:**
 
 ```bash
 openclaw gateway health

@@ -1,13 +1,13 @@
 // OpenClaw config for Neuralwatt inference
 // Copy to ~/.openclaw/openclaw.json and adjust to taste.
 // JSON5 format: comments and trailing commas are allowed.
+//
+// IMPORTANT: Set your API key with the CLI before starting the gateway:
+//   openclaw config set models.providers.neuralwatt.apiKey \
+//     --ref-provider default --ref-source env --ref-id NEURALWATT_API_KEY
 {
-  // Set NEURALWATT_API_KEY in your environment or inline it here:
-  // env: { NEURALWATT_API_KEY: "your-api-key-here" },
-
-  identity: {
-    name: "Assistant",
-    theme: "helpful assistant",
+  gateway: {
+    mode: "local",
   },
 
   models: {
@@ -15,7 +15,7 @@
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",
-        apiKey: "NEURALWATT_API_KEY",
+        // apiKey is set via `openclaw config set` (see above)
         api: "openai-completions",
         models: [
           {
@@ -36,6 +36,15 @@
     defaults: {
       model: { primary: "neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8" },
     },
+    list: [
+      {
+        id: "main",
+        identity: {
+          name: "Assistant",
+          theme: "helpful assistant",
+        },
+      },
+    ],
   },
 
   // Uncomment and configure the channels you want:
