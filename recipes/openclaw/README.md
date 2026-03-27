@@ -21,13 +21,39 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 
 ## Setup
 
-**1. Export your API key** (add to `~/.zshrc` or equivalent):
+Run `openclaw onboard` with your Neuralwatt API key:
 
 ```bash
-export NEURALWATT_API_KEY="your-api-key-here"
+openclaw onboard --install-daemon \
+  --auth-choice custom-api-key \
+  --custom-base-url "https://api.neuralwatt.com/v1" \
+  --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
+  --custom-compatibility openai \
+  --custom-api-key "your-api-key-here" \
+  --secret-input-mode plaintext
 ```
 
-**2. Create** `~/.openclaw/openclaw.json`:
+This creates the config, stores the API key, and installs the gateway as a background service in one step.
+
+The onboarding wizard uses conservative defaults (16k context, 4k max output). After it finishes, update the model limits to match what Neuralwatt supports:
+
+```bash
+openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
+openclaw config set models.providers.neuralwatt.models.0.maxTokens 32768 --strict-json
+```
+
+Verify everything is working:
+
+```bash
+openclaw gateway health
+openclaw models list
+```
+
+You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789`.
+
+### Alternative: manual config
+
+If you prefer to set up the config file by hand, create `~/.openclaw/openclaw.json`:
 
 ```bash
 mkdir -p ~/.openclaw
@@ -44,7 +70,7 @@ mkdir -p ~/.openclaw
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",
-        // apiKey is registered via step 3 below
+        apiKey: "your-api-key-here",
         api: "openai-completions",
         models: [
           {
@@ -76,44 +102,12 @@ mkdir -p ~/.openclaw
 
 A copy-pasteable version is also available as [`openclaw.json`](openclaw.json).
 
-**3. Register your API key with OpenClaw:**
+Then install and start the gateway:
 
 ```bash
-openclaw config set models.providers.neuralwatt.apiKey \
-  --ref-provider default --ref-source env --ref-id NEURALWATT_API_KEY
-```
-
-OpenClaw resolves secrets through a ref system rather than reading bare strings from the config. This command wires up the env var so both the CLI and the systemd gateway service can access it.
-
-**4. Start the gateway:**
-
-```bash
+openclaw gateway install
 openclaw gateway start
 ```
-
-**5. Verify:**
-
-```bash
-openclaw gateway health
-openclaw models list
-```
-
-You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789`.
-
-### Alternative: interactive onboarding
-
-If you prefer a wizard, `openclaw onboard` can set up the provider in one command:
-
-```bash
-openclaw onboard --install-daemon \
-  --auth-choice custom-api-key \
-  --custom-base-url "https://api.neuralwatt.com/v1" \
-  --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
-  --custom-compatibility openai \
-  --custom-api-key "$NEURALWATT_API_KEY"
-```
-
-The wizard uses conservative defaults (16k context, 4k max output). After onboarding, edit `~/.openclaw/openclaw.json` to set `contextWindow: 131072` and `maxTokens: 32768` for the full limits.
 
 ## Channels
 
