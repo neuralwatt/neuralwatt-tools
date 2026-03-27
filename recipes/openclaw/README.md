@@ -63,7 +63,7 @@ openclaw config set models.providers.neuralwatt.apiKey \
     mode: "local",
   },
   models: {
-    mode: "merge",
+    mode: "replace",
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",

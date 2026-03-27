@@ -11,7 +11,7 @@
   },
 
   models: {
-    mode: "merge",
+    mode: "replace",
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",
