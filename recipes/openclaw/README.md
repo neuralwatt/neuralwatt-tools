@@ -112,14 +112,16 @@ You should see your Neuralwatt model in the list.
 
 OpenClaw supports 20+ messaging channels. The most common ones:
 
-| Channel | Setup |
-|---------|-------|
-| Web UI | Built-in at `http://localhost:18789` |
-| Telegram | Add `channels.telegram.token` in config |
-| Discord | Add `channels.discord.token` in config |
-| WhatsApp | Add `channels.whatsapp.allowFrom` and scan QR |
+| Channel | Setup | Docs |
+|-|-|-|
+| Web UI | Built-in at `http://localhost:18789` | — |
+| Telegram | Add `channels.telegram.token` in config | [telegram.md](https://github.com/openclaw/openclaw/blob/main/docs/channels/telegram.md) |
+| Discord | Add `channels.discord.token` in config | [discord.md](https://github.com/openclaw/openclaw/blob/main/docs/channels/discord.md) |
+| WhatsApp | Add `channels.whatsapp.allowFrom` and scan QR | [whatsapp.md](https://github.com/openclaw/openclaw/blob/main/docs/channels/whatsapp.md) |
+| Slack | Add `channels.slack.token` in config | [slack.md](https://github.com/openclaw/openclaw/blob/main/docs/channels/slack.md) |
+| Signal | Add `channels.signal` config | [signal.md](https://github.com/openclaw/openclaw/blob/main/docs/channels/signal.md) |
 
-See the [OpenClaw channel docs](https://github.com/openclaw/openclaw/tree/main/docs/channels) for full setup instructions per channel.
+See the [full channel list](https://github.com/openclaw/openclaw/tree/main/docs/channels) and [OpenClaw docs](https://docs.openclaw.ai) for more.
 
 ## Available Models
 
