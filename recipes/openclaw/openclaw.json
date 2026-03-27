@@ -1,10 +1,6 @@
 // OpenClaw config for Neuralwatt inference
 // Copy to ~/.openclaw/openclaw.json and adjust to taste.
 // JSON5 format: comments and trailing commas are allowed.
-//
-// IMPORTANT: Set your API key with the CLI before starting the gateway:
-//   openclaw config set models.providers.neuralwatt.apiKey \
-//     --ref-provider default --ref-source env --ref-id NEURALWATT_API_KEY
 {
   gateway: {
     mode: "local",
@@ -15,7 +11,7 @@
     providers: {
       neuralwatt: {
         baseUrl: "https://api.neuralwatt.com/v1",
-        // apiKey is set via `openclaw config set` (see above)
+        apiKey: "your-api-key-here",
         api: "openai-completions",
         models: [
           {
