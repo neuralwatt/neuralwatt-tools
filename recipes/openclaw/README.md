@@ -24,7 +24,8 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 Run `openclaw onboard` with your Neuralwatt API key:
 
 ```bash
-openclaw onboard --install-daemon \
+openclaw onboard --non-interactive --accept-risk \
+  --install-daemon \
   --auth-choice custom-api-key \
   --custom-base-url "https://api.neuralwatt.com/v1" \
   --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
