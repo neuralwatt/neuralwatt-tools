@@ -24,8 +24,10 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 Run `openclaw onboard` with your Neuralwatt API key:
 
 ```bash
-openclaw onboard --install-daemon \
+openclaw onboard --non-interactive --accept-risk \
+  --install-daemon \
   --auth-choice custom-api-key \
+  --custom-provider-id neuralwatt \
   --custom-base-url "https://api.neuralwatt.com/v1" \
   --custom-model-id "Qwen/Qwen3.5-397B-A17B-FP8" \
   --custom-compatibility openai \
@@ -35,13 +37,6 @@ openclaw onboard --install-daemon \
 
 This creates the config, stores the API key, and installs the gateway as a background service in one step.
 
-The onboarding wizard uses conservative defaults (16k context, 4k max output). After it finishes, update the model limits to match what Neuralwatt supports:
-
-```bash
-openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
-openclaw config set models.providers.neuralwatt.models.0.maxTokens 32768 --strict-json
-```
-
 Verify everything is working:
 
 ```bash
@@ -50,6 +45,14 @@ openclaw models list
 ```
 
 You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789`.
+
+Optionally, raise the model limits from the onboarding defaults (16k context, 4k max output) to the full Qwen3.5 397B capacity:
+
+```bash
+openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
+openclaw config set models.providers.neuralwatt.models.0.maxTokens 32768 --strict-json
+openclaw gateway restart
+```
 
 ### Alternative: manual config
 
@@ -134,11 +137,3 @@ curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
 ```
 
 To add more models, append them to the `models` array in your provider config.
-
-## Energy Usage
-
-Neuralwatt returns energy consumption data with every API response. You can check your daily usage with the [`nw-usage`](../../scripts/) script:
-
-```bash
-nw-usage
-```
