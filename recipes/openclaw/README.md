@@ -137,11 +137,3 @@ curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
 ```
 
 To add more models, append them to the `models` array in your provider config.
-
-## Energy Usage
-
-Neuralwatt returns energy consumption data with every API response. You can check your daily usage with the [`nw-usage`](../../scripts/) script:
-
-```bash
-nw-usage
-```
