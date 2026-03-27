@@ -37,7 +37,7 @@ openclaw onboard --non-interactive --accept-risk \
 
 This creates the config, stores the API key, and installs the gateway as a background service in one step.
 
-The onboarding wizard uses conservative defaults (16k context, 4k max output). After it finishes, update the model limits to match what Neuralwatt supports:
+The onboarding wizard uses conservative defaults (16k context, 4k max output). After it finishes, update the limits for Qwen3.5 397B:
 
 ```bash
 openclaw config set models.providers.neuralwatt.models.0.contextWindow 131072 --strict-json
