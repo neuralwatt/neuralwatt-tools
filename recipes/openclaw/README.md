@@ -44,7 +44,8 @@ openclaw gateway health
 openclaw models list
 ```
 
-You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789`.
+You should see `neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8` in the list. The WebChat UI is at `http://localhost:18789` and you can get the correct
+tokenized dashboard url by running `openclaw dashboard --no-open`.
 
 Optionally, raise the model limits from the onboarding defaults (16k context, 4k max output) to the full Qwen3.5 397B capacity:
 
