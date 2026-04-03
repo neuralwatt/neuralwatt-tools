@@ -1,0 +1,210 @@
+#!/bin/bash
+# Install nw-usage script and add it as an Opencode command
+#
+# Usage:
+#   install-nw-usage              # Interactive prompt (global default)
+#   install-nw-usage --global     # Non-interactive global install
+#   install-nw-usage --project    # Non-interactive project install
+#   install-nw-usage --help
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NW_USAGE_SCRIPT="$SCRIPT_DIR/nw-usage"
+INSTALL_DIR="$HOME/.local/bin"
+OPENCODE_GLOBAL_CONFIG="$HOME/.config/opencode/opencode.json"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Command template for Opencode
+COMMAND_JSON='{
+  "command": {
+    "nw-usage": {
+      "description": "Show Neuralwatt energy usage",
+      "template": "Here is my Neuralwatt API usage:\\n\\n!`nw-usage`\\n\\nReport this to the user."
+    }
+  }
+}'
+
+# Markdown command for project install
+COMMAND_MD='---
+description: Show Neuralwatt energy usage
+---
+Here is my Neuralwatt API usage:
+
+!`nw-usage`
+
+Report this to the user.
+'
+
+print_usage() {
+    cat <<EOF
+Usage: install-nw-usage [OPTIONS]
+
+Install nw-usage script and add it as an Opencode command.
+
+Options:
+  --global     Install command globally in ~/.config/opencode/opencode.json
+  --project    Install command in current project's .opencode/command/
+  -h, --help   Show this help message
+
+Without options, prompts for choice (global is default).
+
+EOF
+}
+
+log_info() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}!${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}✗${NC} $1" >&2
+}
+
+check_dependencies() {
+    # Check for jq (required for JSON merging)
+    if ! command -v jq &>/dev/null; then
+        log_error "jq is required but not installed."
+        echo "  Install with: brew install jq" >&2
+        echo "  Or: apt install jq" >&2
+        exit 1
+    fi
+    log_info "jq found: $(command -v jq)"
+}
+
+install_script() {
+    # Ensure ~/.local/bin exists
+    mkdir -p "$INSTALL_DIR"
+    
+    # Create symlink (remove existing if present)
+    local symlink="$INSTALL_DIR/nw-usage"
+    if [[ -L "$symlink" ]] || [[ -e "$symlink" ]]; then
+        rm "$symlink"
+        log_info "Removed existing nw-usage"
+    fi
+    
+    ln -s "$NW_USAGE_SCRIPT" "$symlink"
+    log_info "Created symlink: $symlink -> $NW_USAGE_SCRIPT"
+    
+    # Make source executable (should already be, but ensure it)
+    chmod +x "$NW_USAGE_SCRIPT"
+}
+
+check_path() {
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        log_warn "~/.local/bin is not in your PATH"
+        echo "  Add to your shell config (~/.zshrc, ~/.bashrc, etc.):"
+        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "  Then reload: source ~/.zshrc"
+    else
+        log_info "~/.local/bin is in PATH"
+    fi
+}
+
+install_global_command() {
+    local config_dir
+    config_dir="$(dirname "$OPENCODE_GLOBAL_CONFIG")"
+    
+    # Ensure config directory exists
+    mkdir -p "$config_dir"
+    
+    if [[ -f "$OPENCODE_GLOBAL_CONFIG" ]]; then
+        # Merge with existing config
+        local temp_file
+        temp_file="$(mktemp)"
+        
+        if jq -s '.[0] * .[1]' "$OPENCODE_GLOBAL_CONFIG" <(echo "$COMMAND_JSON") > "$temp_file"; then
+            mv "$temp_file" "$OPENCODE_GLOBAL_CONFIG"
+            log_info "Added nw-usage command to $OPENCODE_GLOBAL_CONFIG"
+        else
+            rm -f "$temp_file"
+            log_error "Failed to merge JSON config"
+            exit 1
+        fi
+    else
+        # Create new config
+        echo "$COMMAND_JSON" > "$OPENCODE_GLOBAL_CONFIG"
+        log_info "Created $OPENCODE_GLOBAL_CONFIG with nw-usage command"
+    fi
+}
+
+install_project_command() {
+    local project_root="${1:-$(pwd)}"
+    local command_dir="$project_root/.opencode/command"
+    
+    # Ensure command directory exists
+    mkdir -p "$command_dir"
+    
+    echo "$COMMAND_MD" > "$command_dir/nw-usage.md"
+    log_info "Created $command_dir/nw-usage.md"
+}
+
+main() {
+    local mode=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --global) mode="global"; shift ;;
+            --project) mode="project"; shift ;;
+            -h|--help) print_usage; exit 0 ;;
+            *) log_error "Unknown option: $1"; print_usage; exit 1 ;;
+        esac
+    done
+    
+    echo "=== Neuralwatt Usage Installer ==="
+    echo ""
+    
+    # Check dependencies
+    check_dependencies
+    echo ""
+    
+    # Install the script
+    echo "Installing nw-usage script..."
+    install_script
+    check_path
+    echo ""
+    
+    # Determine install mode
+    if [[ -z "$mode" ]]; then
+        echo "Where should the Opencode command be installed?"
+        echo ""
+        read -p "Global (default) or project? [Y/n]: " choice
+        case "$choice" in
+            n|N|no|No|NO) mode="project" ;;
+            *) mode="global" ;;
+        esac
+        echo ""
+    fi
+    
+    # Install command
+    case "$mode" in
+        global)
+            echo "Installing Opencode command globally..."
+            install_global_command
+            ;;
+        project)
+            echo "Installing Opencode command for current project..."
+            install_project_command
+            ;;
+    esac
+    
+    echo ""
+    echo -e "${GREEN}✓ Installation complete!${NC}"
+    echo ""
+    echo "Usage:"
+    echo "  nw-usage              # View API usage"
+    echo "  nw-usage --tmux       # Compact output for tmux/statusline"
+    echo "  /nw-usage             # In Opencode"
+    echo ""
+}
+
+main "$@"
