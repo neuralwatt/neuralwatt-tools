@@ -1,0 +1,23 @@
+#!/bin/bash
+# pre-push hook: block direct pushes to main.
+# Override with: ALLOW_MAIN=1 git push
+#
+# Enable: git config core.hooksPath .githooks
+
+protected_branches="main"
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+for branch in $protected_branches; do
+    if [ "$current_branch" = "$branch" ]; then
+        if [ "$ALLOW_MAIN" = "1" ]; then
+            echo "⚠️  ALLOW_MAIN=1 set — bypassing push protection for $branch"
+            exit 0
+        fi
+        echo "🚫 Direct push to '$branch' is blocked."
+        echo "   Use a feature branch and open a PR instead."
+        echo ""
+        echo "   To override in an emergency:"
+        echo "     ALLOW_MAIN=1 git push"
+        exit 1
+    fi
+done
