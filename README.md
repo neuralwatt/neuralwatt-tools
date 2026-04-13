@@ -3,12 +3,11 @@
 [![CI](https://github.com/neuralwatt/neuralwatt-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/neuralwatt/neuralwatt-tools/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Discord](https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white)](https://discord.gg/ZJEfU2BZw2)
 
 Tools and recipes for using the [Neuralwatt](https://neuralwatt.com) inference API.
 
 ![llm chat with energy metrics](images/llm-chat-energy.png)
-
-![Claude Code statusline with energy usage](images/claude-code-statusline.png)
 
 ## What is Neuralwatt?
 
@@ -90,6 +89,10 @@ export OPENAI_API_KEY="your-api-key"
 
 - [portal.neuralwatt.com](https://portal.neuralwatt.com): Hosted inference API (get your API key here)
 - [neuralwatt.com](https://neuralwatt.com): Core product, energy efficiency software for AI infrastructure
+
+## Community
+
+Join us on [Discord](https://discord.gg/ZJEfU2BZw2) for questions, feedback, and discussions.
 
 ## Contributing
 
