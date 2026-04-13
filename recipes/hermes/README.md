@@ -1,6 +1,6 @@
 # Hermes Agent with Neuralwatt
 
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) is a self-improving AI agent from [Nous Research](https://nousresearch.com) that runs locally or on a VPS and can talk to you from Telegram, Discord, Slack, WhatsApp, Signal, or a terminal UI. It supports any OpenAI-compatible endpoint, so Neuralwatt works as a drop-in provider.
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) is a self-improving AI agent from [Nous Research](https://nousresearch.com) that runs locally or on a VPS and can talk to you from Telegram, Discord, Slack, WhatsApp, Signal, or a terminal UI. It accepts any OpenAI-compatible endpoint, so you can point it at the Neuralwatt API as the inference backend.
 
 ## Prerequisites
 
