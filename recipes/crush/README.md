@@ -1,6 +1,6 @@
 # Crush with Neuralwatt
 
-[Crush](https://crush.land) is an AI coding agent CLI that discovers providers from environment variables automatically. If `NEURALWATT_API_KEY` is set, Neuralwatt models appear with no configuration.
+[Crush](https://github.com/charmbracelet/crush) is a terminal-based AI coding assistant from [Charm](https://charm.sh) that supports multiple LLM providers, mid-session model switching, LSP integration, and MCP extensibility. It discovers providers from environment variables automatically, so if `NEURALWATT_API_KEY` is set, Neuralwatt models appear with no configuration.
 
 ![Crush model selection with Neuralwatt](../../images/crush-model-selection.png)
 
@@ -14,7 +14,7 @@
 # Homebrew (macOS/Linux)
 brew install charm-sh/tap/crush
 
-# Or download directly from https://crush.land
+# Or download from https://github.com/charmbracelet/crush
 ```
 
 ## Setup
