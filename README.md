@@ -44,6 +44,7 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 | [Claude Code](recipes/claude-code/) | Anthropic's coding CLI with Neuralwatt models | [Setup guide](recipes/claude-code/README.md) |
 | [OpenClaw](recipes/openclaw/) | Personal AI assistant gateway (Telegram, Discord, WhatsApp, etc.) | [Setup guide](recipes/openclaw/README.md) |
 | [Hermes Agent](recipes/hermes/) | Self-improving AI agent from Nous Research with messaging gateway | [Setup guide](recipes/hermes/README.md) |
+| [Crush](recipes/crush/) | AI coding agent CLI with auto-discovery | [Setup guide](recipes/crush/README.md) |
 | [OpenCode](recipes/opencode/) | AI coding agent CLI | [Setup guide](recipes/opencode/README.md) |
 | [llm plugin](plugins/llm-neuralwatt/) | Use Neuralwatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
 | [Neovim](recipes/neovim/) | AI completions + energy monitor | [Setup guide](recipes/neovim/README.md) |
@@ -60,6 +61,7 @@ neuralwatt-tools/
 └── recipes/
     ├── claude-code/         # Anthropic's coding CLI setup
     ├── openclaw/            # Personal AI assistant gateway
+    ├── crush/              # AI coding agent CLI with auto-discovery
     ├── hermes/              # Nous Research Hermes Agent setup
     ├── opencode/            # AI coding agent CLI setup
     ├── neovim/              # Energy monitor + AI plugin configs
