@@ -18,21 +18,26 @@ brew install anomalyco/tap/opencode
 export NEURALWATT_API_KEY="your-api-key-here"
 ```
 
-**2. Generate config** using the `nw-opencode-config` script:
+**2. Generate config** using the `nw-opencode-config` script. It prints a full `opencode.json` to stdout — you redirect it yourself:
 
 ```bash
-# Auto-generate config from the live Neuralwatt API
-nw-opencode-config --write
+# Fresh install — redirect straight into place
+nw-opencode-config > ~/.config/opencode/opencode.json
 
-# Or specify a default model
-nw-opencode-config --write --default zai-org/GLM-5.1-FP8
+# Pick a different default model
+nw-opencode-config --default zai-org/GLM-5.1-FP8 > ~/.config/opencode/opencode.json
 ```
 
-This fetches all available models from the Neuralwatt API and writes the config to `~/.config/opencode/opencode.json`. It **merges** with your existing config — your other providers, your `.model` default, and your `command.nw-usage` wording are preserved. Re-running refreshes the Neuralwatt model list and drops any models no longer in the API. See [scripts/README.md](../../scripts/) for the full merge rules.
+The script never writes to your config file. If you already have an `opencode.json` with other providers, don't redirect over it — generate just the models block and merge it in manually:
+
+```bash
+nw-opencode-config --models-only | pbcopy
+# paste under provider.neuralwatt.models in your existing config
+```
 
 ### Manual config
 
-If you prefer to create the config manually, create `~/.config/opencode/opencode.json`:
+If you prefer to write it by hand, create `~/.config/opencode/opencode.json`:
 
 ```json
 {
@@ -66,15 +71,14 @@ opencode
 
 ## nw-opencode-config
 
-The `nw-opencode-config` script generates an OpenCode config from the live Neuralwatt API.
+The `nw-opencode-config` script prints an OpenCode config generated from the live Neuralwatt API. It **never writes to your config file** — you control where the output goes.
 
 ```bash
-nw-opencode-config                        # Print config to stdout
-nw-opencode-config --write                # Write to ~/.config/opencode/opencode.json
-nw-opencode-config --models-only          # Print just the models block
-nw-opencode-config --list                 # List available models
+nw-opencode-config                        # Full config to stdout
+nw-opencode-config --models-only          # Just the models block
+nw-opencode-config --list                 # List available models (human-readable)
 nw-opencode-config --include-aliases      # Include alias/fast models
-nw-opencode-config --default MODEL_ID     # Set default model
+nw-opencode-config --default MODEL_ID     # Override default in output
 nw-opencode-config --help
 ```
 
@@ -82,9 +86,15 @@ nw-opencode-config --help
 
 1. Fetches model IDs and context limits from `https://api.neuralwatt.com/v1/models`
 2. Merges with curated metadata ([`opencode-models.json`](../../scripts/opencode-models.json)) for display names, output limits, and model-specific options (e.g., Kimi K2.5's recommended `repetitionPenalty`)
-3. Outputs a valid `opencode.json` with the Neuralwatt provider and `/nw-usage` command
+3. Prints a valid `opencode.json` with the Neuralwatt provider and `/nw-usage` command
 
-New models appear automatically when added to the API. To update your config, just re-run `nw-opencode-config --write`.
+New models appear automatically when added to the API. To refresh your config, re-run and redirect:
+
+```bash
+nw-opencode-config > ~/.config/opencode/opencode.json
+```
+
+(Only do this if your config has no other providers you care about. Otherwise use `--models-only` and merge by hand.)
 
 ### Installation
 

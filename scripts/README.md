@@ -121,12 +121,12 @@ The `--color` flag accepts ANSI color codes:
 
 # nw-opencode-config
 
-Generate an [OpenCode](https://opencode.ai) config for Neuralwatt from the live API.
+Print an [OpenCode](https://opencode.ai) config for Neuralwatt to stdout, generated from the live API. **Never writes to your config file** — you redirect the output yourself.
 
 ## Dependencies
 
 - `curl` - for API requests
-- `jq` - for JSON parsing and config merging
+- `jq` - for JSON generation
 
 ## Installation
 
@@ -137,46 +137,42 @@ ln -s /path/to/neuralwatt-tools/scripts/nw-opencode-config ~/.local/bin/
 ## Usage
 
 ```bash
-nw-opencode-config                        # Print config to stdout
-nw-opencode-config --write                # Write to ~/.config/opencode/opencode.json
-nw-opencode-config --models-only          # Print just the models block
-nw-opencode-config --list                 # List available models
+nw-opencode-config                        # Full opencode.json to stdout
+nw-opencode-config --models-only          # Just the models block
+nw-opencode-config --list                 # List available models (human-readable)
 nw-opencode-config --include-aliases      # Include alias/fast models
-nw-opencode-config --default MODEL_ID     # Set default model
+nw-opencode-config --default MODEL_ID     # Override default in output
 ```
 
 ### How it works
 
 1. Fetches model IDs and context limits from `https://api.neuralwatt.com/v1/models`
 2. Merges with curated metadata (`opencode-models.json`) for display names, output limits, and model-specific options
-3. Outputs a valid `opencode.json` — context limits from the API, output limits from metadata
+3. Prints a valid `opencode.json` to stdout
 
-### Config merging
+### Writing the output
 
-Re-running `--write` refreshes the Neuralwatt model list to match the current API. The script distinguishes facts it owns from opinions the user owns:
+Fresh install — redirect directly:
 
-| Field | Behavior on re-run |
-|-|-|
-| `provider.neuralwatt.models` | Replaced wholesale (stale models removed) |
-| `provider.neuralwatt.options` (baseURL, apiKey) | Deep-merged; existing values win |
-| `.model` | Preserved; only set when `--default` passed or field is missing |
-| `command.nw-usage` | Preserved if already defined; added if missing |
-| Other providers, commands, top-level keys | Untouched |
+```bash
+nw-opencode-config > ~/.config/opencode/opencode.json
+```
+
+Existing config — generate the models block and merge by hand:
+
+```bash
+nw-opencode-config --models-only | pbcopy
+# then paste under provider.neuralwatt.models in your existing config
+```
+
+The script deliberately does not touch your config file. That keeps it a pure generator with no merge logic to go wrong.
 
 ### Default model
 
-First `--write` sets the default to `Qwen/Qwen3.5-397B-A17B-FP8`. Subsequent runs leave `.model` alone unless you pass `--default`:
+Defaults to `Qwen/Qwen3.5-397B-A17B-FP8`. Override with `--default`:
 
 ```bash
-nw-opencode-config --write --default zai-org/GLM-5.1-FP8
+nw-opencode-config --default zai-org/GLM-5.1-FP8 > opencode.json
 ```
 
-`--default` is validated against the live API — typos fail fast instead of producing a broken config.
-
-### Updating
-
-When new models are added to the Neuralwatt API, re-run to update your config:
-
-```bash
-nw-opencode-config --write
-```
+`--default` is validated against the live API — typos fail fast.
