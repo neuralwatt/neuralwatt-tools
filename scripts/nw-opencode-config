@@ -20,7 +20,15 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so METADATA_FILE lookup works when script is symlinked
+# into ~/.local/bin or similar.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 METADATA_FILE="$SCRIPT_DIR/opencode-models.json"
 API_BASE="https://api.neuralwatt.com/v1"
 DEFAULT_MODEL="Qwen/Qwen3.5-397B-A17B-FP8"
