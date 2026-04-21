@@ -153,15 +153,25 @@ nw-opencode-config --default MODEL_ID     # Set default model
 
 ### Config merging
 
-OpenCode merges configs from multiple sources (global + project + env), so running `--write` adds the Neuralwatt provider without affecting your other providers or settings. Re-running updates the Neuralwatt models to match the current API.
+Re-running `--write` refreshes the Neuralwatt model list to match the current API. The script distinguishes facts it owns from opinions the user owns:
+
+| Field | Behavior on re-run |
+|-|-|
+| `provider.neuralwatt.models` | Replaced wholesale (stale models removed) |
+| `provider.neuralwatt.options` (baseURL, apiKey) | Deep-merged; existing values win |
+| `.model` | Preserved; only set when `--default` passed or field is missing |
+| `command.nw-usage` | Preserved if already defined; added if missing |
+| Other providers, commands, top-level keys | Untouched |
 
 ### Default model
 
-Defaults to `Qwen/Qwen3.5-397B-A17B-FP8`. Override with `--default`:
+First `--write` sets the default to `Qwen/Qwen3.5-397B-A17B-FP8`. Subsequent runs leave `.model` alone unless you pass `--default`:
 
 ```bash
 nw-opencode-config --write --default zai-org/GLM-5.1-FP8
 ```
+
+`--default` is validated against the live API — typos fail fast instead of producing a broken config.
 
 ### Updating
 

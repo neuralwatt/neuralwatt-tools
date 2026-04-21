@@ -28,7 +28,7 @@ nw-opencode-config --write
 nw-opencode-config --write --default zai-org/GLM-5.1-FP8
 ```
 
-This fetches all available models from the Neuralwatt API and writes the config to `~/.config/opencode/opencode.json`. It **merges** with your existing config — your other providers and settings are preserved.
+This fetches all available models from the Neuralwatt API and writes the config to `~/.config/opencode/opencode.json`. It **merges** with your existing config — your other providers, your `.model` default, and your `command.nw-usage` wording are preserved. Re-running refreshes the Neuralwatt model list and drops any models no longer in the API. See [scripts/README.md](../../scripts/) for the full merge rules.
 
 ### Manual config
 
