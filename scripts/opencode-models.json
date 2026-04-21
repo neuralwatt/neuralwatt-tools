@@ -1,0 +1,72 @@
+{
+  "Qwen/Qwen3.5-397B-A17B-FP8": {
+    "name": "Qwen3.5 397B",
+    "output": 32768
+  },
+  "Qwen/Qwen3.6-35B-A3B": {
+    "name": "Qwen3.6 35B",
+    "output": 32768
+  },
+  "zai-org/GLM-5.1-FP8": {
+    "name": "GLM-5.1",
+    "output": 131072
+  },
+  "moonshotai/Kimi-K2.5": {
+    "name": "Kimi K2.5",
+    "output": 8192,
+    "options": {
+      "repetitionPenalty": 1.05,
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+  "MiniMaxAI/MiniMax-M2.5": {
+    "name": "MiniMax M2.5",
+    "output": 65536
+  },
+  "mistralai/Devstral-Small-2-24B-Instruct-2512": {
+    "name": "Devstral Small 2",
+    "output": 32768
+  },
+  "openai/gpt-oss-20b": {
+    "name": "GPT-OSS 20B",
+    "output": 8192
+  },
+  "neuralwatt/kimi-k2.5-long": {
+    "name": "Kimi K2.5 Long",
+    "output": 8192,
+    "options": {
+      "repetitionPenalty": 1.05,
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+  "qwen3.6-35b-fast": {
+    "name": "Qwen3.6 35B Fast",
+    "output": 8192
+  },
+  "glm-5-fast": {
+    "name": "GLM-5 Fast",
+    "output": 8192
+  },
+  "kimi-k2.5-fast": {
+    "name": "Kimi K2.5 Fast",
+    "output": 4096,
+    "options": {
+      "repetitionPenalty": 1.05,
+      "temperature": 0.7
+    }
+  },
+  "glm-5.1-fast": {
+    "name": "GLM-5.1 Fast",
+    "output": 8192
+  },
+  "qwen3.5-397b-fast": {
+    "name": "Qwen3.5 397B Fast",
+    "output": 8192
+  },
+  "qwen3.5-35b-fast": {
+    "name": "Qwen3.5 35B Fast",
+    "output": 8192
+  }
+}

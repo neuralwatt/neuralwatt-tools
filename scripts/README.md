@@ -1,6 +1,11 @@
-# nw-usage
+# Scripts
 
-CLI for checking your Neuralwatt API usage and energy consumption.
+- **nw-usage** — Check your Neuralwatt API usage and energy consumption
+- **nw-opencode-config** — Generate OpenCode config from the live Neuralwatt API
+
+---
+
+# nw-usage
 
 ## Dependencies
 
@@ -111,3 +116,57 @@ The `--color` flag accepts ANSI color codes:
 - **Claude Code statusline**: See [recipes/claude-code/](../recipes/claude-code/)
 - **Tmux statusline**: See [recipes/tmux/](../recipes/tmux/)
 - **OpenCode**: See [recipes/opencode/](../recipes/opencode/)
+
+---
+
+# nw-opencode-config
+
+Generate an [OpenCode](https://opencode.ai) config for Neuralwatt from the live API.
+
+## Dependencies
+
+- `curl` - for API requests
+- `jq` - for JSON parsing and config merging
+
+## Installation
+
+```bash
+ln -s /path/to/neuralwatt-tools/scripts/nw-opencode-config ~/.local/bin/
+```
+
+## Usage
+
+```bash
+nw-opencode-config                        # Print config to stdout
+nw-opencode-config --write                # Write to ~/.config/opencode/opencode.json
+nw-opencode-config --models-only          # Print just the models block
+nw-opencode-config --list                 # List available models
+nw-opencode-config --include-aliases      # Include alias/fast models
+nw-opencode-config --default MODEL_ID     # Set default model
+```
+
+### How it works
+
+1. Fetches model IDs and context limits from `https://api.neuralwatt.com/v1/models`
+2. Merges with curated metadata (`opencode-models.json`) for display names, output limits, and model-specific options
+3. Outputs a valid `opencode.json` — context limits from the API, output limits from metadata
+
+### Config merging
+
+OpenCode merges configs from multiple sources (global + project + env), so running `--write` adds the Neuralwatt provider without affecting your other providers or settings. Re-running updates the Neuralwatt models to match the current API.
+
+### Default model
+
+Defaults to `Qwen/Qwen3.5-397B-A17B-FP8`. Override with `--default`:
+
+```bash
+nw-opencode-config --write --default zai-org/GLM-5.1-FP8
+```
+
+### Updating
+
+When new models are added to the Neuralwatt API, re-run to update your config:
+
+```bash
+nw-opencode-config --write
+```
