@@ -1,4 +1,5 @@
 {
+  "_comment": "TEMPORARY LOCAL METADATA. Bridge until the Neuralwatt API exposes display names, output limits, and per-model client options natively. Tracked by neuralwatt/inference_frontend#2116 (API extension) and neuralwatt/neuralwatt-tools#19 (unified config generator). Once #2116 lands, nw-opencode-config reads these fields from /v1/models and this file can be deleted.",
   "Qwen/Qwen3.5-397B-A17B-FP8": {
     "name": "Qwen3.5 397B",
     "output": 32768
