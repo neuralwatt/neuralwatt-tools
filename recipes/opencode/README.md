@@ -31,6 +31,58 @@ export NEURALWATT_API_KEY="your-api-key-here"
         "Qwen/Qwen3.5-397B-A17B-FP8": {
           "name": "Qwen3.5 397B",
           "limit": { "context": 262144, "output": 32768 }
+        },
+        "Qwen/Qwen3.6-35B-A3B": {
+          "name": "Qwen3.6 35B",
+          "limit": { "context": 131072, "output": 32768 }
+        },
+        "moonshotai/Kimi-K2.6": {
+          "name": "Kimi K2.6",
+          "limit": { "context": 262144, "output": 32768 }
+        },
+        "moonshotai/Kimi-K2.5": {
+          "name": "Kimi K2.5",
+          "limit": { "context": 262144, "output": 32768 }
+        },
+        "openai/gpt-oss-20b": {
+          "name": "GPT-OSS 20B",
+          "limit": { "context": 16384, "output": 4096 }
+        },
+        "mistralai/Devstral-Small-2-24B-Instruct-2512": {
+          "name": "Devstral Small 2",
+          "limit": { "context": 262144, "output": 32768 }
+        },
+        "MiniMaxAI/MiniMax-M2.5": {
+          "name": "MiniMax M2.5",
+          "limit": { "context": 196608, "output": 32768 }
+        },
+        "zai-org/GLM-5.1-FP8": {
+          "name": "GLM-5.1",
+          "limit": { "context": 200000, "output": 32768 }
+        },
+        "qwen3.6-35b-fast": {
+          "name": "Qwen3.6 35B Fast",
+          "limit": { "context": 131072, "output": 8192 }
+        },
+        "glm-5-fast": {
+          "name": "GLM-5 Fast",
+          "limit": { "context": 200000, "output": 8192 }
+        },
+        "glm-5.1-fast": {
+          "name": "GLM-5.1 Fast",
+          "limit": { "context": 200000, "output": 8192 }
+        },
+        "kimi-k2.6-fast": {
+          "name": "Kimi K2.6 Fast",
+          "limit": { "context": 262144, "output": 8192 }
+        },
+        "kimi-k2.5-fast": {
+          "name": "Kimi K2.5 Fast",
+          "limit": { "context": 262144, "output": 8192 }
+        },
+        "qwen3.5-397b-fast": {
+          "name": "Qwen3.5 397B Fast",
+          "limit": { "context": 262144, "output": 8192 }
         }
       },
       "options": {
@@ -41,6 +93,16 @@ export NEURALWATT_API_KEY="your-api-key-here"
   }
 }
 ```
+
+## Available models
+
+See the full list with pricing at [portal.neuralwatt.com/pricing](https://portal.neuralwatt.com/pricing). All models use the same provider config above.
+
+**Reasoning models:** `Qwen/Qwen3.5-397B-A17B-FP8`, `Qwen/Qwen3.6-35B-A3B`, `moonshotai/Kimi-K2.6`, `moonshotai/Kimi-K2.5`, `MiniMaxAI/MiniMax-M2.5`, `zai-org/GLM-5.1-FP8`
+
+**Fast variants** (no reasoning mode, lower latency): `qwen3.6-35b-fast`, `glm-5-fast`, `glm-5.1-fast`, `kimi-k2.6-fast`, `kimi-k2.5-fast`, `qwen3.5-397b-fast`
+
+**Other:** `openai/gpt-oss-20b`, `mistralai/Devstral-Small-2-24B-Instruct-2512`
 
 ## Run
 
