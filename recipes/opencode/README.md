@@ -1,10 +1,10 @@
 # OpenCode with Neuralwatt
 
-[OpenCode](https://opencode.ai) ([GitHub](https://github.com/anomalyco/opencode)) is an AI coding agent CLI that lets you bring your own models.
+[OpenCode](https://opencode.ai) ([GitHub](https://github.com/sst/opencode)) is an AI coding agent CLI. Neuralwatt is a built-in provider in OpenCode's model catalog, so the only thing you need to do is set your API key.
 
 ## Install
 
-See [OpenCode installation docs](https://github.com/anomalyco/opencode?tab=readme-ov-file#installation) for all options, or:
+See [OpenCode installation docs](https://opencode.ai/docs/) for all options, or:
 
 ```bash
 brew install anomalyco/tap/opencode
@@ -12,40 +12,28 @@ brew install anomalyco/tap/opencode
 
 ## Setup
 
-**1. Export your API key** (add to `~/.zshrc`):
+Export your API key (add to `~/.zshrc` or `~/.bashrc`):
 
 ```bash
 export NEURALWATT_API_KEY="your-api-key-here"
 ```
 
-**2. Create config** at `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "model": "neuralwatt/Qwen/Qwen3.5-397B-A17B-FP8",
-  "provider": {
-    "neuralwatt": {
-      "name": "Neuralwatt",
-      "npm": "@ai-sdk/openai-compatible",
-      "models": {
-        "Qwen/Qwen3.5-397B-A17B-FP8": {
-          "name": "Qwen3.5 397B",
-          "limit": { "context": 262144, "output": 32768 }
-        }
-      },
-      "options": {
-        "baseURL": "https://api.neuralwatt.com/v1",
-        "apiKey": "{env:NEURALWATT_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-## Run
+Launch OpenCode:
 
 ```bash
 opencode
+```
+
+Open the model picker (`/models`), filter by "Neuralwatt", and pick a model.
+
+## Set a Default Model
+
+Optional. Add to `~/.config/opencode/opencode.json` (global) or `./opencode.json` (per-project):
+
+```json
+{
+  "model": "neuralwatt/zai-org/GLM-5.1-FP8"
+}
 ```
 
 ## Energy Usage Command

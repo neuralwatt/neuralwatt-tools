@@ -61,12 +61,13 @@ crush
 3. Filter by "Neuralwatt"
 4. Pick a model
 
-You can also set a default model in `~/.config/crush/crush.json`:
+You can also set defaults in `~/.config/crush/crush.json`. Crush picks a `large` model for primary work and a `small` one for cheaper background tasks:
 
 ```json
 {
   "model": {
-    "large": "Qwen/Qwen3.5-397B-A17B-FP8"
+    "large": "moonshotai/Kimi-K2.6",
+    "small": "Qwen/Qwen3.6-35B-A3B"
   }
 }
 ```
