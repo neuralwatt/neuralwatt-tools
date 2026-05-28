@@ -47,6 +47,7 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 | [Open WebUI](recipes/open-webui/) | Self-hosted ChatGPT-style web UI | [Setup guide](recipes/open-webui/README.md) |
 | [OpenCode](recipes/opencode/) | AI coding agent CLI | [Setup guide](recipes/opencode/README.md) |
 | [llm plugin](plugins/llm-neuralwatt/) | Use Neuralwatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
+| [Pi MCR extension](plugins/pi/) | Unlock 1M virtual context in [Pi](https://pi.dev) via Neuralwatt MCR | [Setup guide](plugins/pi/README.md) |
 | [Neovim](recipes/neovim/) | AI completions + energy monitor | [Setup guide](recipes/neovim/README.md) |
 | [Tmux](recipes/tmux/) | Show usage in status bar | [Setup guide](recipes/tmux/README.md) |
 
@@ -57,7 +58,8 @@ neuralwatt-tools/
 ├── scripts/
 │   └── nw-usage             # CLI for checking energy usage
 ├── plugins/
-│   └── llm-neuralwatt/      # pip-installable LLM plugin
+│   ├── llm-neuralwatt/      # pip-installable LLM plugin
+│   └── pi/                  # Pi MCR extension (1M virtual context)
 └── recipes/
     ├── claude-code/         # Anthropic's coding CLI setup
     ├── openclaw/            # Personal AI assistant gateway
