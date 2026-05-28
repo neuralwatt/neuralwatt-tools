@@ -75,14 +75,22 @@ When you're on an MCR model, two indicators appear in Pi's footer:
 
 | Key | Shows |
 |-----|-------|
-| `nw-mcr` | Session fingerprint (first 8 chars) + current drop threshold |
+| `nw-mcr` | Session fingerprint (first 8 chars) + current drop threshold. While a request is in flight, switches to `optimizing context… 1.4s` so multi-second compaction pauses don't look like a hung model. |
 | `nw-energy` | Cumulative energy (mJ/J/kJ), APC cache hit rate, compaction ratio |
 
-Example:
+Example (idle):
 
 ```
 MCR a1b2c3d4 | drop<35    nw-energy 2.3J | APC 85% | compact 42%
 ```
+
+Example (request in flight, server compacting or warming the prefix cache):
+
+```
+MCR a1b2c3d4 | optimizing context… 1.4s
+```
+
+The elapsed counter advances every ~0.5s until the model starts streaming real output, at which point the chip reverts to the standard view. This addresses the perception that long MCR requests have hung — see [`neuralwatt/inference_frontend#3914`](https://github.com/neuralwatt/inference_frontend/issues/3914) for the customer feedback that prompted the change.
 
 ## How context drop works
 
@@ -126,12 +134,15 @@ For non-MCR models the extension stays out of the way — Pi behaves exactly as 
 Pi extension (neuralwatt-mcr.ts)
   |
   +- after_provider_response   reads X-MCR-* headers
-  +- message_end               reads response body mcr/energy (fallback)
+  +- message_update            clears in-flight chip on first model delta (#3914)
+  +- message_end               reads response body mcr/energy (fallback);
+                                 backstop for clearing in-flight chip
   +- context                   drops messages per safe_drop_before
-  +- before_provider_request   sends X-MCR-Session-FP header
+  +- before_provider_request   sends X-MCR-Session-FP header;
+                                 starts in-flight chip (#3914)
   +- session_before_compact    cancels Pi compaction when MCR active
-  +- session_start             resets state
-  +- session_shutdown          clears status bar
+  +- session_start             resets state (incl. in-flight chip)
+  +- session_shutdown          clears status bar (incl. in-flight ticker)
 ```
 
 ## Feedback
