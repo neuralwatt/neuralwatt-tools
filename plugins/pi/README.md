@@ -4,6 +4,8 @@ A drop-in extension for [Pi](https://pi.dev) that unlocks Neuralwatt's MCR (Mana
 
 The extension works with Neuralwatt's Tier 2 response-header protocol — no Pi core changes, no proxy, no patched build required.
 
+> 🚧 **Private beta.** The MCR long-context aliases (`neuralwatt/kimi-k2.6-long`, `neuralwatt/glm-5.1-long`) are currently in a closed beta. You'll need an access grant on top of a Neuralwatt API key — email **chad@neuralwatt.com** to request one. Once granted, the install steps below work as written; without a grant, calls to the aliases will return 404.
+
 ## What it does
 
 When you select a Neuralwatt MCR model (e.g., `neuralwatt/kimi-k2.6-long`, `neuralwatt/glm-5.1-long`), the extension:
