@@ -312,9 +312,16 @@ export default function (pi: ExtensionAPI) {
   // doesn't merge with the models.json-derived entry (different map), so we
   // have to re-state any field we need; only apiKey here, since baseUrl/api
   // flow through via the override-only branch of applyProviderConfig.
+  //
+  // Env-var references use the explicit `$NAME` form. Pi deprecated the
+  // bare-name auto-detection ("NEURALWATT_API_KEY") — it now warns and will
+  // stop resolving bare names in a future release, so we pass `$`-prefixed
+  // values. `CONV_ID_ENV` itself stays bare because it's also used for
+  // `process.env[CONV_ID_ENV]` access above; only the registerProvider value
+  // gets the `$` prefix.
   pi.registerProvider("neuralwatt", {
-    apiKey: "NEURALWATT_API_KEY",
-    headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+    apiKey: "$NEURALWATT_API_KEY",
+    headers: { "X-NW-Conversation-ID": `$${CONV_ID_ENV}` },
   });
 
   function updateStatusBar(ctx: ExtensionContext) {
