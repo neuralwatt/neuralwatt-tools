@@ -77,22 +77,78 @@ When you're on an MCR model, two indicators appear in Pi's footer:
 
 | Key | Shows |
 |-----|-------|
-| `nw-mcr` | Session fingerprint (first 8 chars) + current drop threshold. While a request is in flight, switches to `optimizing context… 1.4s` so multi-second compaction pauses don't look like a hung model. |
+| `nw-mcr` | Session fingerprint (first 8 chars) + current drop threshold. If a request runs unusually long (more than a few seconds), it switches to a neutral `working… 12s` so a long wait doesn't look like a hung model. |
 | `nw-energy` | Cumulative energy (mJ/J/kJ), APC cache hit rate, compaction ratio |
 
-Example (idle):
+Example (idle, or during a normal request):
 
 ```
 MCR a1b2c3d4 | drop<35    nw-energy 2.3J | APC 85% | compact 42%
 ```
 
-Example (request in flight, server compacting or warming the prefix cache):
+Example (request still running after several seconds):
 
 ```
-MCR a1b2c3d4 | optimizing context… 1.4s
+MCR a1b2c3d4 | working… 12s
 ```
 
-The elapsed counter advances every ~0.5s until the model starts streaming real output, at which point the chip reverts to the standard view. This addresses the perception that long MCR requests have hung — see [`neuralwatt/inference_frontend#3914`](https://github.com/neuralwatt/inference_frontend/issues/3914) for the customer feedback that prompted the change.
+### Why "working…" and not "optimizing context…"
+
+Earlier versions showed `optimizing context… Ns` for the **entire** time between
+sending a request and the first model token, on **every** MCR request. Because
+MCR prompts are large (100k+ tokens), that prefill window is naturally 10–60s —
+so users saw "optimizing context" on nearly every prompt, for the whole wait,
+even though actual context compaction happens on only a small fraction of turns.
+That made MCR feel like it was making every prompt slow, which it wasn't.
+
+The honest fix:
+
+- **Normal turns are silent.** Nothing changes in the chip for the first few
+  seconds — the passive `MCR <fp> | drop<N>` status stays put.
+- **Long waits get a neutral label.** Only after a grace window does the chip
+  surface `working… Ns` — a truthful "a request is in flight" signal that does
+  **not** claim MCR is doing optimization work.
+- **The chip only appears on MCR-backed aliases** (`neuralwatt/…` and `…-long`),
+  never on `glm-5.1-fast`/`-flex`, `kimi-k2.6-*`, or direct base-model calls.
+
+The counter advances every ~0.5s until the model starts streaming, at which
+point the chip reverts to the standard view.
+
+> **Why not show the real compaction phase?** The gateway already emits the
+> ground truth — `event: mcr-status` SSE frames with `compacting` / `warming` /
+> `idle` phases ([`inference_frontend#3916`](https://github.com/neuralwatt/inference_frontend/issues/3916)).
+> A Pi extension on the current Pi versions (v0.72/0.73) **cannot observe those
+> frames**: the only streaming hook (`message_update`) delivers a closed
+> `AssistantMessageEvent` union (text/thinking/toolcall only), there is no raw
+> SSE-event hook on the extension API, and the OpenAI-compatible stream is
+> consumed through the official `openai` SDK, which drops any non-chat-completion
+> SSE frame before the extension could see it. So the extension genuinely can't
+> tell prefill from compaction — the only honest indicator is a neutral
+> in-flight one. A phase-accurate chip is blocked on an upstream Pi capability
+> (a hook that surfaces raw provider SSE events). See
+> [`neuralwatt/inference_frontend#3954`](https://github.com/neuralwatt/inference_frontend/issues/3954)
+> and [tools#33](https://github.com/neuralwatt/neuralwatt-tools/issues/33).
+
+### Verifying the chip behaviour
+
+There's no automated TUI harness, so verify by hand after copying the updated
+extension into `~/.pi/agent/extensions/`:
+
+1. **Normal fast turn** — on `neuralwatt/glm-5.1-long`, send a short prompt that
+   responds within a few seconds. The chip should stay on `MCR <fp> | drop<N>`
+   the whole time; **no** `working…` / `optimizing context…` should ever appear.
+2. **Long turn** — send a large prompt (or one that takes >6s to first token).
+   After the grace window the chip should switch to `MCR <fp> | working… Ns`
+   with the counter advancing, then revert to the standard view the instant the
+   model starts streaming.
+3. **Non-MCR model** — switch to `glm-5.1-fast` / `glm-5.1-flex` / direct
+   `zai-org/GLM-5.1-FP8` and send any prompt, including the first message. The
+   `nw-mcr` chip should be empty and stay empty — no `working…`, no MCR
+   fingerprint. (Regression check for [tools#33](https://github.com/neuralwatt/neuralwatt-tools/issues/33).)
+
+The extension logs each session start with its version and the in-flight
+transitions to `~/.pi/agent/extensions/neuralwatt-mcr.log` — tail it to confirm
+which revision is loaded.
 
 ## How context drop works
 
@@ -110,13 +166,18 @@ After:  [anchor1, anchor2, anchor3, recent_36, ..., recent_85]
 
 ## MCR vs non-MCR models
 
-The extension only activates for MCR-capable models. These are detected by model ID:
+The extension only activates for MCR-backed aliases. These are detected by model ID:
 
 - IDs with the `neuralwatt/` prefix (e.g., `neuralwatt/glm-5.1-long`)
 - IDs ending in `-long` (indicates a 1M virtual context window)
-- Base model IDs starting with `zai-org/`, `moonshotai/`, `glm-5`, `kimi-k2`
 
-For non-MCR models the extension stays out of the way — Pi behaves exactly as it does without the extension installed.
+Everything else — `glm-5.1-fast`, `glm-5.1-flex`, `kimi-k2.6-fast`/`-flex`, and
+direct base-model IDs like `zai-org/GLM-5.1-FP8` or `moonshotai/...` — is **not**
+MCR-backed (no server-side compaction), so the extension stays fully out of the
+way: no context drop, no MCR/`working…` chip, no fingerprint handling. Pi behaves
+exactly as it does without the extension installed. (Earlier versions matched
+those base-model/fast/flex IDs too and wrongly lit the chip on them — see
+[tools#33](https://github.com/neuralwatt/neuralwatt-tools/issues/33).)
 
 ## Known caveats
 
@@ -136,12 +197,13 @@ For non-MCR models the extension stays out of the way — Pi behaves exactly as 
 Pi extension (neuralwatt-mcr.ts)
   |
   +- after_provider_response   reads X-MCR-* headers
-  +- message_update            clears in-flight chip on first model delta (#3914)
+  +- message_update            clears in-flight chip on first model delta
   +- message_end               reads response body mcr/energy (fallback);
                                  backstop for clearing in-flight chip
   +- context                   drops messages per safe_drop_before
   +- before_provider_request   sends X-MCR-Session-FP header;
-                                 starts in-flight chip (#3914)
+                                 starts neutral in-flight chip (silent until
+                                 a long wait — never claims "optimizing")
   +- session_before_compact    cancels Pi compaction when MCR active
   +- session_start             resets state (incl. in-flight chip)
   +- session_shutdown          clears status bar (incl. in-flight ticker)

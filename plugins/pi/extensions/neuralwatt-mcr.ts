@@ -4,6 +4,12 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { randomUUID } from "node:crypto";
 
+// Bump on any user-facing behaviour change. Surfaced in the extension log so a
+// session's behaviour can be tied to a specific revision when triaging reports.
+//   2.0.0 — honest in-flight chip (tools#33 / inference_frontend#3954):
+//           neutral "working…" label, silent grace window, tightened MCR gating.
+const EXTENSION_VERSION = "2.0.0";
+
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
 const LOG_FILE = path.join(
@@ -51,10 +57,17 @@ interface SessionState {
   contextTokens: number;
   lastMcrMeta: MCRMetadata | null;
   lastEnergy: EnergyData | null;
-  // Issue #3914: in-flight request UX. When an MCR request is sent we flip
-  // ``inFlightSince`` to the wall-clock send time so the chip can show
-  // "optimizing context…" until the response stream produces real model
-  // output. Cleared on first ``message_update`` or on ``message_end``.
+  // In-flight request UX. When an MCR request is sent we record the wall-clock
+  // send time so the chip can surface a neutral "working…" indicator on long
+  // waits, and cleared on the first ``message_update`` / ``message_end``.
+  //
+  // HONESTY NOTE (tools#33 / inference_frontend#3954): this is a wall-clock
+  // proxy, NOT a real compaction signal. The extension cannot observe whether
+  // the gateway is actually compacting — see ``markRequestSent`` for why Pi's
+  // API doesn't surface the gateway's ``mcr-status`` SSE frames. So the chip
+  // must NOT claim "optimizing context"; it can only honestly say a request is
+  // in flight. We also stay silent for the first few seconds so ordinary turns
+  // (the ~96% with no compaction) show nothing at all.
   inFlightSince: number | null;
   inFlightTickerHandle: NodeJS.Timeout | null;
 }
@@ -72,20 +85,38 @@ const state: SessionState = {
   inFlightTickerHandle: null,
 };
 
-// Issue #3914: how often to refresh the chip while the in-flight indicator
-// is showing, so the elapsed counter advances visibly. 500ms is fast enough
-// to feel live but well below the refresh budget of Pi's footer.
+// How often to refresh the chip while the in-flight indicator is showing, so
+// the elapsed counter advances visibly. 500ms is fast enough to feel live but
+// well below the refresh budget of Pi's footer.
 const IN_FLIGHT_TICK_MS = 500;
 
+// Honesty grace window (tools#33 / inference_frontend#3954): suppress the
+// in-flight indicator for the first few seconds of every request. Large MCR
+// prompts (100k+ tokens) have a naturally long prefill/TTFT — 10-60s — on
+// EVERY turn, with no compaction happening on the ~96% that don't compact.
+// The old chip labelled that ordinary latency "optimizing context…" for the
+// whole window, which read as "MCR is making every prompt slow" and drove
+// churn. We can't tell prefill from compaction (no SSE phase signal reaches
+// the extension), so the only honest move is: say nothing until the wait is
+// long enough that the user genuinely wants reassurance the model isn't hung,
+// and even then use a neutral label that doesn't assert MCR is doing work.
+const IN_FLIGHT_GRACE_MS = 6000;
+
+// Recognise ONLY the MCR-backed aliases. The MCR pipeline (server-side
+// compaction + 1M virtual context + the X-MCR-* response protocol) runs only
+// for the `neuralwatt/…-long` aliases; the base-model and fast/flex IDs route
+// straight to the provider with no compaction.
+//
+// tools#33: the earlier predicate also matched `zai-org/`, `moonshotai/`,
+// `glm-5`, and `kimi-k2`, so every fast/flex alias and direct base-model call
+// lit the in-flight chip and ran the context-drop / fp handlers — none of which
+// apply off-MCR. Nico reported "optimizing context" on non-long models. The
+// client always selects the alias (never the forwarded base name), so matching
+// the alias shape is sufficient and correct. This narrows every call site
+// (chip gating, context-drop, fp-set, compaction-suppression) to MCR-only,
+// which is the intended behaviour for all of them.
 function isMCRModel(modelId: string): boolean {
-  return (
-    modelId.includes("neuralwatt/") ||
-    modelId.includes("-long") ||
-    modelId.startsWith("zai-org/") ||
-    modelId.startsWith("moonshotai/") ||
-    modelId.startsWith("glm-5") ||
-    modelId.startsWith("kimi-k2")
-  );
+  return modelId.includes("neuralwatt/") || modelId.endsWith("-long");
 }
 
 function extractMCRFromHeaders(
@@ -175,9 +206,9 @@ function formatEnergy(joules: number): string {
   return `${(joules / 1000).toFixed(2)}kJ`;
 }
 
-// Issue #3914: render an in-flight elapsed-time stamp for the chip. Short
-// formats (<10s → "1.4s", >=10s → "12s", >=60s → "1m 5s") to keep the chip
-// from growing wide enough to push other footer widgets off-screen.
+// Render an in-flight elapsed-time stamp for the chip. Short formats (<10s →
+// "1.4s", >=10s → "12s", >=60s → "1m 5s") keep the chip from growing wide
+// enough to push other footer widgets off-screen.
 function formatElapsed(ms: number): string {
   if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
   const seconds = Math.floor(ms / 1000);
@@ -318,23 +349,30 @@ export default function (pi: ExtensionAPI) {
   });
 
   function updateStatusBar(ctx: ExtensionContext) {
-    // Issue #3914: when an MCR request is in flight, show an "optimizing
-    // context…" indicator with elapsed time so the user knows the gateway
-    // is working (compaction or KV pre-warm) and the model hasn't hung.
-    // Dio's first-MCR-tester feedback (2026-05-28) named the exact failure
-    // mode this fixes: a silent multi-second pause looking identical to a
-    // crashed model. The in-flight indicator takes precedence over the
-    // standard "MCR <fp> | drop<N>" chip text — once the response stream
-    // produces real model output, ``markStreamProducing`` clears
-    // ``inFlightSince`` and the chip reverts to the standard view.
-    if (state.inFlightSince !== null) {
-      const elapsedMs = Date.now() - state.inFlightSince;
+    // In-flight indicator (tools#33 / inference_frontend#3954). HONESTY RULES:
+    //
+    //  * The extension cannot observe whether the gateway is compacting (Pi
+    //    doesn't surface the ``mcr-status`` SSE frames — see markRequestSent).
+    //    So we NEVER claim "optimizing context"; we only ever say a request is
+    //    in flight ("working…").
+    //  * We stay completely silent for the first IN_FLIGHT_GRACE_MS so normal
+    //    turns — including the long-but-uncompacted prefill that dominates real
+    //    usage — show nothing. Only a genuinely long wait surfaces the neutral
+    //    reassurance that the model hasn't hung.
+    //  * Once real model output starts, ``markStreamProducing`` clears
+    //    ``inFlightSince`` and the chip reverts to the standard MCR view.
+    const inFlightElapsedMs =
+      state.inFlightSince !== null ? Date.now() - state.inFlightSince : 0;
+    if (
+      state.inFlightSince !== null &&
+      inFlightElapsedMs >= IN_FLIGHT_GRACE_MS
+    ) {
       const fpPrefix = state.sessionFp
         ? `MCR ${state.sessionFp.slice(0, 8)} | `
         : "MCR | ";
       ctx.ui.setStatus(
         MCR_STATUS_KEY,
-        `${fpPrefix}optimizing context… ${formatElapsed(elapsedMs)}`,
+        `${fpPrefix}working… ${formatElapsed(inFlightElapsedMs)}`,
       );
     } else if (state.sessionFp) {
       const parts: string[] = [`MCR ${state.sessionFp.slice(0, 8)}`];
@@ -364,23 +402,43 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  // Issue #3914: lifecycle helpers for the in-flight indicator. We bracket
-  // the wait window with ``markRequestSent`` (on before_provider_request)
-  // and ``markStreamProducing`` (on the first message_update / message_end
-  // that carries real model output).
+  // Lifecycle helpers for the in-flight indicator. We bracket the wait window
+  // with ``markRequestSent`` (on before_provider_request) and
+  // ``markStreamProducing`` (on the first message_update / message_end that
+  // carries real model output). The elapsed counter advances via a
+  // ``setInterval`` that re-calls ``updateStatusBar`` every ~0.5s.
   //
-  // The chip's elapsed counter advances via a ``setInterval`` that re-calls
-  // ``updateStatusBar`` every ~0.5s. Without the ticker the chip would
-  // freeze at "0.0s" until the response arrives, defeating the point.
+  // ── WHY THIS IS A NEUTRAL "working…" PROXY, NOT A REAL MCR PHASE SIGNAL ──
   //
-  // Forward-compatible note: the gateway (issue #3914 server side) also
-  // emits ``event: mcr-status`` SSE frames carrying {phase: compacting |
-  // warming | idle, elapsed_ms}. Pi's extension API does not currently
-  // surface raw SSE event types other than the standard message deltas
-  // (see types.d.ts::AssistantMessageEvent — only text/thinking/toolcall
-  // types reach extensions). When Pi adds an SSE-event hook we can swap
-  // the time-based estimate below for the server's authoritative phase
-  // signal and distinguish "compacting" from "warming" in the chip text.
+  // The gateway (inference_frontend #3916) emits the ground truth as
+  // ``event: mcr-status`` SSE frames carrying {phase: compacting | warming |
+  // idle, elapsed_ms}. The ideal chip would show "optimizing context…" ONLY
+  // while a ``compacting`` phase is live. That is NOT achievable from a Pi
+  // extension on the version this targets (Pi v0.72/0.73), verified against
+  // the published type defs:
+  //
+  //   1. The only stream hook is ``message_update``, whose payload is
+  //      ``assistantMessageEvent: AssistantMessageEvent`` (pi-ai types.d.ts).
+  //      That union is closed to text/thinking/toolcall/start/done/error —
+  //      there is no member that can carry a raw ``mcr-status`` frame.
+  //   2. There is no "raw SSE frame" / "stream event" hook anywhere on
+  //      ``ExtensionAPI`` (pi-coding-agent extensions/types.d.ts): the event
+  //      surface is session/agent/turn/message/tool lifecycle only.
+  //   3. The neuralwatt provider streams through pi-ai's openai-completions
+  //      handler, which consumes the response via the official ``openai`` SDK
+  //      (``client.chat.completions.create(...).withResponse()``). The SDK's
+  //      decoder yields only typed ``chat.completion.chunk`` objects; any SSE
+  //      frame with ``event: mcr-status`` is dropped by the SDK before pi-ai —
+  //      and therefore the extension — can ever see it.
+  //
+  // So the extension genuinely cannot tell prefill from compaction. Claiming
+  // "optimizing context" would be a lie on the ~96% of turns where nothing is
+  // compacted (the churn driver in #3954). The honest behaviour is: neutral
+  // "working…" label, only after a grace window. Path A (real phase-driven
+  // chip) is blocked on an upstream Pi capability: a hook that surfaces raw
+  // provider SSE events (or an OpenAI-compat passthrough for unknown event
+  // types) to extensions. Track that as a Pi feature request; revisit here
+  // once it ships.
   function markRequestSent(ctx: ExtensionContext) {
     state.inFlightSince = Date.now();
     if (state.inFlightTickerHandle !== null) {
@@ -490,12 +548,12 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar(ctx);
   });
 
-  // Issue #3914: clear the in-flight indicator on the first message_update
-  // for an MCR model — at that point real model tokens are flowing, the
-  // "is it hung?" perception is gone, and the chip should revert to the
-  // standard MCR-fingerprint view. The MessageUpdateEvent fires for any
-  // assistant streaming update (text/thinking/toolcall deltas); we don't
-  // need to narrow further since any of these prove the wait is over.
+  // Clear the in-flight indicator on the first message_update for an MCR
+  // model — at that point real model tokens are flowing, the "is it hung?"
+  // perception is gone, and the chip should revert to the standard
+  // MCR-fingerprint view. The MessageUpdateEvent fires for any assistant
+  // streaming update (text/thinking/toolcall deltas); we don't need to narrow
+  // further since any of these prove the wait is over.
   pi.on("message_update", async (event, ctx) => {
     if (event.message.role !== "assistant") return;
     if (!isMCRModel(ctx.model?.id || "")) return;
@@ -506,9 +564,9 @@ export default function (pi: ExtensionAPI) {
     if (event.message.role !== "assistant") return;
     if (!isMCRModel(ctx.model?.id || "")) return;
 
-    // Issue #3914: backstop — if a response was short enough that no
-    // message_update ever fired, message_end is the latest possible
-    // chance to clear the indicator before it gets stale.
+    // Backstop — if a response was short enough that no message_update ever
+    // fired, message_end is the latest possible chance to clear the indicator
+    // before it gets stale.
     markStreamProducing(ctx);
 
     const msg = event.message as Record<string, unknown>;
@@ -637,12 +695,13 @@ export default function (pi: ExtensionAPI) {
 
     const payload = event.payload as Record<string, unknown>;
 
-    // Issue #3914: start the in-flight indicator. The chip shows
-    // "optimizing context… 1.4s" with the elapsed counter advancing every
-    // ~0.5s until the model starts producing real output (handled in
-    // ``message_update``). For MCR-long requests this window can be
-    // multiple seconds (compaction + KV pre-warm + TTFT); without the
-    // indicator the chat UI is indistinguishable from a hung model.
+    // Start the in-flight indicator. It stays silent for IN_FLIGHT_GRACE_MS;
+    // only on a genuinely long wait does it surface a neutral
+    // "working… 12s" so the chat UI isn't indistinguishable from a hung
+    // model. It deliberately does NOT claim "optimizing context" — the
+    // extension can't observe whether compaction is happening (see
+    // ``markRequestSent`` for the Pi-API limitation that blocks the real
+    // phase signal).
     markRequestSent(ctx);
 
     // Upgrade the X_NW_CONVERSATION_ID env var (seeded with a UUID at
@@ -728,7 +787,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    nwlog("session_start", {});
+    nwlog("session_start", { extension_version: EXTENSION_VERSION });
     state.sessionFp = null;
     state.safeDropBefore = 0;
     state.storedThrough = 0;
@@ -737,7 +796,7 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
-    // Issue #3914: clear any in-flight indicator left over from a prior
+    // Clear any in-flight indicator left over from a prior
     // session (defensive — session_start would normally fire after any
     // active request has completed, but a forced restart or fork can land
     // here while inFlightSince is still set).
@@ -791,7 +850,7 @@ export default function (pi: ExtensionAPI) {
       total_energy_joules: state.totalEnergyJoules,
       session_turns: state.sessionTurns,
     });
-    // Issue #3914: tear down the in-flight ticker so the interval handle
+    // Tear down the in-flight ticker so the interval handle
     // doesn't outlive the session.
     state.inFlightSince = null;
     if (state.inFlightTickerHandle !== null) {
