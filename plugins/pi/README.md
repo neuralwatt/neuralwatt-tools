@@ -47,6 +47,8 @@ cp neuralwatt-tools/plugins/pi/configs/models.json ~/.pi/agent/models.json
 
 If you already have a `~/.pi/agent/models.json` with other providers, merge the `neuralwatt` provider entry into your existing file instead of overwriting.
 
+> ⚠️ **Heads up: an existing `neuralwatt` provider can shadow the bundled model list.** If you've previously added a Neuralwatt provider to Pi (via `pi /provider`, a prior `models.json`, or another extension), it can take precedence and the long-context aliases below may not appear in `/model` or may not route correctly. Before copying, check `pi /provider` and `~/.pi/agent/models.json` for an existing `neuralwatt` entry — remove it (or merge the bundled `models` array into it) so the canonical list from this repo is what Pi sees.
+
 ### 4. Copy the extension
 
 Pi auto-discovers extensions under `~/.pi/agent/extensions/`:
