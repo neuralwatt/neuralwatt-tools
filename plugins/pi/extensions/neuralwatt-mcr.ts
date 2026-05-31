@@ -8,7 +8,10 @@ import { randomUUID } from "node:crypto";
 // session's behaviour can be tied to a specific revision when triaging reports.
 //   2.0.0 — honest in-flight chip (tools#33 / inference_frontend#3954):
 //           neutral "working…" label, silent grace window, tightened MCR gating.
-const EXTENSION_VERSION = "2.0.0";
+//   2.1.0 — send the extension version on the wire as X-NW-MCR-Ext-Version so
+//           the gateway can log which client revision served a request (server
+//           logs previously had no way to tell a user's extension version).
+const EXTENSION_VERSION = "2.1.0";
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
@@ -319,14 +322,14 @@ export default function (pi: ExtensionAPI) {
   const MCR_STATUS_KEY = "nw-mcr";
   const ENERGY_STATUS_KEY = "nw-energy";
 
-  // ── X-NW-Conversation-ID header wiring ──────────────────────────────
+  // ── Outbound header wiring (X-NW-Conversation-ID, X-NW-MCR-Ext-Version) ──
   // pi-coding-agent's `before_provider_request` is a *body* hook — the
   // earlier `payload.headers[...]` mutation reached extension memory only,
   // never the HTTP wire. The documented per-request header path is
-  // `pi.registerProvider({ headers })`, whose values are env-var names that
+  // `pi.registerProvider({ headers })`, whose values are env-var NAMES that
   // the SDK re-reads from `process.env` on every stream
-  // (dist/core/resolve-config-value.js). Net: real HTTP header, no body
-  // touch, no APC impact.
+  // (dist/core/resolve-config-value.js). Net: real HTTP headers, no body
+  // touch, no APC impact. Both headers below ride this same mechanism.
   //
   // Boot order: we seed the env var with a UUID at extension load so any
   // request fired before the first `before_provider_request` tick still
@@ -338,6 +341,14 @@ export default function (pi: ExtensionAPI) {
   if (!process.env[CONV_ID_ENV]) {
     process.env[CONV_ID_ENV] = getUuidFallback();
   }
+  // X-NW-MCR-Ext-Version (2.1.0): surface the client extension
+  // version on the wire so the gateway can log which revision served a
+  // request — server logs previously had no way to tell a user's version.
+  // Unlike the conversation id, the version is static for the life of the
+  // process (it never changes at runtime), so we seed it once at load and
+  // never touch it again — no upgrade-on-hook logic needed.
+  const EXT_VERSION_ENV = "X_NW_MCR_EXT_VERSION";
+  process.env[EXT_VERSION_ENV] = EXTENSION_VERSION;
   // `apiKey` mirrors the env-var name from ~/.pi/agent/models.json so the
   // partial config doesn't shadow the existing auth. `storeProviderRequestConfig`
   // doesn't merge with the models.json-derived entry (different map), so we
@@ -345,7 +356,10 @@ export default function (pi: ExtensionAPI) {
   // flow through via the override-only branch of applyProviderConfig.
   pi.registerProvider("neuralwatt", {
     apiKey: "NEURALWATT_API_KEY",
-    headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+    headers: {
+      "X-NW-Conversation-ID": CONV_ID_ENV,
+      "X-NW-MCR-Ext-Version": EXT_VERSION_ENV,
+    },
   });
 
   function updateStatusBar(ctx: ExtensionContext) {

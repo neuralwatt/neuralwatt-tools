@@ -15,6 +15,7 @@ When you select a Neuralwatt MCR model (e.g., `neuralwatt/kimi-k2.6-long`, `neur
 - **Compaction suppression** — Cancels Pi's built-in compaction when MCR is active (the server handles it).
 - **Anchor protection** — Preserves the first 3 user messages (MCR's fingerprint anchors) so sessions stay stable.
 - **Energy + MCR status bar** — Adds `nw-mcr` (session fingerprint + current drop threshold) and `nw-energy` (cumulative energy + APC cache hit rate + compaction ratio) to Pi's footer.
+- **Version reporting** — Sends the extension version on every request as the `X-NW-MCR-Ext-Version` header so the gateway can log which client revision served a request (handy when triaging a report — server logs previously had no way to tell a user's extension version).
 
 ## Requirements
 
@@ -148,7 +149,9 @@ extension into `~/.pi/agent/extensions/`:
 
 The extension logs each session start with its version and the in-flight
 transitions to `~/.pi/agent/extensions/neuralwatt-mcr.log` — tail it to confirm
-which revision is loaded.
+which revision is loaded. The same version is also sent on the wire as the
+`X-NW-MCR-Ext-Version` request header, so the gateway logs it server-side for
+debugging too.
 
 ## How context drop works
 
