@@ -1,0 +1,13 @@
+{
+  "name": "@neuralwatt/pi-mcr-extension",
+  "version": "2.1.1",
+  "private": true,
+  "description": "Neuralwatt MCR extension for Pi — tests",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}

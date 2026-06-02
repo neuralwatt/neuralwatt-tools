@@ -46,3 +46,19 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: scripts/
+
+  pi-ext-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: plugins/pi/package-lock.json
+      - name: Install dependencies
+        working-directory: plugins/pi
+        run: npm ci
+      - name: Run pi MCR extension tests
+        working-directory: plugins/pi
+        run: npm test

@@ -11,7 +11,11 @@ import { randomUUID } from "node:crypto";
 //   2.1.0 — send the extension version on the wire as X-NW-MCR-Ext-Version so
 //           the gateway can log which client revision served a request (server
 //           logs previously had no way to tell a user's extension version).
-const EXTENSION_VERSION = "2.1.0";
+//   2.1.1 — isMCRModel-first guard in the `context` handler so non-MCR models
+//           no longer flood the log with `no_session_fp` skips (tools#38).
+//           Verified the X-NW-Conversation-ID header is re-read live per
+//           request by the SDK (registerProvider headers mechanism).
+const EXTENSION_VERSION = "2.1.1";
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
@@ -332,17 +336,29 @@ export default function (pi: ExtensionAPI) {
   // pi-coding-agent's `before_provider_request` is a *body* hook — the
   // earlier `payload.headers[...]` mutation reached extension memory only,
   // never the HTTP wire. The documented per-request header path is
-  // `pi.registerProvider({ headers })`, whose values are env-var NAMES that
-  // the SDK re-reads from `process.env` on every stream
-  // (dist/core/resolve-config-value.js). Net: real HTTP headers, no body
-  // touch, no APC impact. Both headers below ride this same mechanism.
+  // `pi.registerProvider({ headers })`, whose values are env-var NAMES.
+  //
+  // VERIFIED against pi-coding-agent 0.73.x (do not "fix" the bare names — see
+  // tools#38 and the #32→#35 revert that re-broke and then un-broke this):
+  //   * sdk.js `streamFn` calls `modelRegistry.getApiKeyAndHeaders(model)` on
+  //     EVERY stream.
+  //   * That calls `resolveHeadersOrThrow` -> `resolveConfigValueUncached`,
+  //     which returns `process.env[value] || value`
+  //     (dist/core/resolve-config-value.js).
+  // So a header value of the *bare* name "X_NW_CONVERSATION_ID" resolves to
+  // the live `process.env["X_NW_CONVERSATION_ID"]` on every request. A
+  // "$"-prefixed value ("$X_NW_CONVERSATION_ID", as #32 tried) does NOT match
+  // any env var and is sent as the literal string — that was the bug #35
+  // reverted. Net: real HTTP headers, re-read live per request, no body touch,
+  // no APC impact. Both headers below ride this same mechanism.
   //
   // Boot order: we seed the env var with a UUID at extension load so any
-  // request fired before the first `before_provider_request` tick still
-  // carries *some* id. The hook upgrades it to Pi's stable per-invocation
-  // session id (see resolveConversationId). Subsequent requests in the
-  // same `pi` invocation reuse the upgraded value — invocation-stable
-  // session_fp by construction.
+  // request fired before `session_start` upgrades it still carries *some*
+  // stable, per-process id. `session_start` (fires before the first provider
+  // request) and `before_provider_request` both upgrade it to Pi's stable
+  // per-invocation session id (see resolveConversationId). Subsequent requests
+  // in the same `pi` invocation reuse the upgraded value — invocation-stable
+  // session_fp by construction, sent on the wire as X-NW-Conversation-ID.
   const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
   if (!process.env[CONV_ID_ENV]) {
     process.env[CONV_ID_ENV] = getUuidFallback();
@@ -501,6 +517,13 @@ export default function (pi: ExtensionAPI) {
     // a preceding session_shutdown. When the session ID hasn't changed,
     // skip the destructive state reset — in-flight MCR state is still
     // valid.
+    //
+    // Assumption of the "unknown" fallback: if getSessionId() is unavailable,
+    // two genuinely different sessions that BOTH lack an id AND have no
+    // intervening session_shutdown collapse to the same "unknown" sentinel and
+    // are treated as a duplicate (state reset skipped). This is acceptable —
+    // such a back-to-back idless pair is indistinguishable from a double-fire,
+    // and session_shutdown clears lastSessionId in the normal case.
     const newSessionId = ctx.sessionManager?.getSessionId?.() ?? "unknown";
     if (newSessionId === lastSessionId) {
       nwlog("session_start_duplicate", {
@@ -666,6 +689,16 @@ export default function (pi: ExtensionAPI) {
     const modelId = ctx.model?.id || "";
     const numMsgs = event.messages.length;
 
+    // isMCRModel must be the FIRST guard. The `context` event fires on every
+    // turn for every model, including non-MCR ones (deepseek-v4-pro,
+    // GLM-5.1-FP8, Kimi-K2.6). Those never carry MCR state, so they always
+    // tripped the `no_session_fp` guard below and flooded the log with
+    // `context_skip` entries that masked real MCR issues. Filtering non-MCR
+    // models out first — silently, with no log line — keeps the log signal
+    // about MCR sessions only. Behaviour for MCR models is unchanged.
+    if (!isMCRModel(modelId)) {
+      return;
+    }
     if (!state.sessionFp) {
       nwlog("context_skip", {
         reason: "no_session_fp",
@@ -681,14 +714,6 @@ export default function (pi: ExtensionAPI) {
         num_msgs: numMsgs,
         safe_drop_before: state.safeDropBefore,
         session_fp: state.sessionFp,
-      });
-      return;
-    }
-    if (!isMCRModel(modelId)) {
-      nwlog("context_skip", {
-        reason: "not_mcr_model",
-        model: modelId,
-        num_msgs: numMsgs,
       });
       return;
     }
