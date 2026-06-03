@@ -1,9 +1,31 @@
 {
   "name": "@neuralwatt/pi-mcr-extension",
-  "version": "2.1.1",
-  "private": true,
-  "description": "Neuralwatt MCR extension for Pi — tests",
+  "version": "2.2.0",
+  "description": "Neuralwatt MCR extension for Pi — 1M virtual context via server-side compaction",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/neuralwatt/neuralwatt-tools/tree/main/plugins/pi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neuralwatt/neuralwatt-tools.git",
+    "directory": "plugins/pi"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "neuralwatt",
+    "mcr",
+    "llm"
+  ],
+  "pi": {
+    "extensions": [
+      "extensions/neuralwatt-mcr.ts"
+    ]
+  },
+  "files": [
+    "extensions/neuralwatt-mcr.ts",
+    "README.md"
+  ],
   "scripts": {
     "test": "vitest run"
   },

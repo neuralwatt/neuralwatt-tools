@@ -15,7 +15,49 @@ import { randomUUID } from "node:crypto";
 //           no longer flood the log with `no_session_fp` skips (tools#38).
 //           Verified the X-NW-Conversation-ID header is re-read live per
 //           request by the SDK (registerProvider headers mechanism).
-const EXTENSION_VERSION = "2.1.1";
+//   2.2.0 — self-contained npm package. The provider's full model list (the
+//           old configs/models.json) is now declared inline via
+//           registerProvider({ baseUrl, api, compat, models }), so the
+//           extension no longer needs a separate models.json copy. This makes
+//           the package installable with `pi install npm:@neuralwatt/pi-mcr-extension`
+//           and updatable with `pi update` — the extension file is the only
+//           resource the package ships.
+const EXTENSION_VERSION = "2.2.0";
+
+// ── Provider definition (folded in from the former configs/models.json) ─────
+// Declaring the full provider config inline lets this extension be a
+// self-contained Pi package: `pi install npm:@neuralwatt/pi-mcr-extension`
+// registers the provider AND its models with no separate models.json step, and
+// `pi update` keeps it current. registerProvider with `models` replaces the
+// whole model list for the provider, so this is the single source of truth.
+//
+// All Neuralwatt models bill by ENERGY, not tokens — cost fields are
+// intentionally zeroed (see README "Token cost shows $0.00").
+const NEURALWATT_BASE_URL = "https://api.neuralwatt.com/v1";
+const NEURALWATT_API = "openai-completions";
+const NEURALWATT_COMPAT = {
+  supportsDeveloperRole: false,
+  supportsReasoningEffort: false,
+  maxTokensField: "max_tokens",
+} as const;
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
+
+const NEURALWATT_MODELS = [
+  { id: "zai-org/GLM-5.1-FP8", name: "GLM-5.1", reasoning: true, input: ["text"], contextWindow: 202752, maxTokens: 8192, cost: ZERO_COST },
+  { id: "glm-5.1-fast", name: "GLM-5.1 Fast", reasoning: false, input: ["text"], contextWindow: 202752, maxTokens: 8192, cost: ZERO_COST },
+  { id: "glm-5-fast", name: "GLM-5 Fast", reasoning: false, input: ["text"], contextWindow: 202752, maxTokens: 8192, cost: ZERO_COST },
+  { id: "neuralwatt/glm-5.1-long", name: "GLM-5.1 Long (MCR 1M)", reasoning: true, input: ["text"], contextWindow: 1048576, maxTokens: 16384, cost: ZERO_COST },
+  { id: "moonshotai/Kimi-K2.6", name: "Kimi K2.6", reasoning: true, input: ["text", "image"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "kimi-k2.6-fast", name: "Kimi K2.6 Fast", reasoning: false, input: ["text", "image"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "neuralwatt/kimi-k2.6-long", name: "Kimi K2.6 Long (MCR 1M)", reasoning: true, input: ["text", "image"], contextWindow: 1048576, maxTokens: 16384, cost: ZERO_COST },
+  { id: "moonshotai/Kimi-K2.5", name: "Kimi K2.5", reasoning: true, input: ["text", "image"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "kimi-k2.5-fast", name: "Kimi K2.5 Fast", reasoning: false, input: ["text", "image"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "Qwen/Qwen3.6-35B-A3B", name: "Qwen3.6 35B", reasoning: true, input: ["text", "image"], contextWindow: 131072, maxTokens: 8192, cost: ZERO_COST },
+  { id: "Qwen/Qwen3.5-397B-A17B-FP8", name: "Qwen3.5 397B FP8", reasoning: true, input: ["text"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "MiniMaxAI/MiniMax-M2.5", name: "MiniMax M2.5", reasoning: true, input: ["text"], contextWindow: 196608, maxTokens: 8192, cost: ZERO_COST },
+  { id: "mistralai/Devstral-Small-2-24B-Instruct-2512", name: "Devstral Small 2 24B", reasoning: false, input: ["text", "image"], contextWindow: 262144, maxTokens: 8192, cost: ZERO_COST },
+  { id: "openai/gpt-oss-20b", name: "GPT OSS 20B", reasoning: true, input: ["text"], contextWindow: 16384, maxTokens: 8192, cost: ZERO_COST },
+] as const;
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
@@ -371,17 +413,22 @@ export default function (pi: ExtensionAPI) {
   // never touch it again — no upgrade-on-hook logic needed.
   const EXT_VERSION_ENV = "X_NW_MCR_EXT_VERSION";
   process.env[EXT_VERSION_ENV] = EXTENSION_VERSION;
-  // `apiKey` mirrors the env-var name from ~/.pi/agent/models.json so the
-  // partial config doesn't shadow the existing auth. `storeProviderRequestConfig`
-  // doesn't merge with the models.json-derived entry (different map), so we
-  // have to re-state any field we need; only apiKey here, since baseUrl/api
-  // flow through via the override-only branch of applyProviderConfig.
+  // Full provider definition. Supplying `models` makes registerProvider
+  // REPLACE the provider's entire model list, so this declaration is the single
+  // source of truth — no ~/.pi/agent/models.json copy needed (folded in at
+  // 2.2.0). baseUrl/api/compat are stated explicitly because, with models
+  // present, this is the canonical entry rather than an override of a
+  // models.json-derived one. apiKey/headers are env-var NAMES, resolved live
+  // per request by the SDK (see the header-wiring note above).
   pi.registerProvider("neuralwatt", {
+    baseUrl: NEURALWATT_BASE_URL,
+    api: NEURALWATT_API,
     apiKey: "NEURALWATT_API_KEY",
     headers: {
       "X-NW-Conversation-ID": CONV_ID_ENV,
       "X-NW-MCR-Ext-Version": EXT_VERSION_ENV,
     },
+    models: NEURALWATT_MODELS.map((m) => ({ ...m, compat: NEURALWATT_COMPAT })),
   });
 
   function updateStatusBar(ctx: ExtensionContext) {

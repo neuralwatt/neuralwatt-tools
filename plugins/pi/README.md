@@ -32,34 +32,33 @@ export NEURALWATT_API_KEY=<your-key>
 
 Add this to `~/.bashrc` or `~/.zshrc` so it persists across shells.
 
-### 2. Clone this repo
+### 2. Install the extension
+
+Use Pi's built-in package manager — it fetches the extension and adds it to your
+settings:
 
 ```bash
-git clone https://github.com/neuralwatt/neuralwatt-tools.git
+pi install npm:@neuralwatt/pi-mcr-extension
 ```
 
-### 3. Copy the models config
-
-Pi needs to know about Neuralwatt's models. Copy the bundled `models.json` to Pi's config directory:
+That's the whole install. The model list ships **inside** the extension (it
+declares the `neuralwatt` provider and all its models on load), so there's no
+separate `models.json` to copy or merge. To install only for the current
+project instead of globally, add `-l`:
 
 ```bash
-cp neuralwatt-tools/plugins/pi/configs/models.json ~/.pi/agent/models.json
+pi install npm:@neuralwatt/pi-mcr-extension -l
 ```
 
-If you already have a `~/.pi/agent/models.json` with other providers, merge the `neuralwatt` provider entry into your existing file instead of overwriting.
+> ⚠️ **An existing `neuralwatt` provider can shadow this one.** If you've
+> previously added a Neuralwatt provider to Pi (via `pi /provider`, a hand-edited
+> `~/.pi/agent/models.json`, or another extension), it can take precedence and
+> the long-context aliases below may not appear in `/model` or may not route
+> correctly. Check `pi /provider` and `~/.pi/agent/models.json` for an existing
+> `neuralwatt` entry and remove it so the list this extension registers is what
+> Pi sees.
 
-> ⚠️ **Heads up: an existing `neuralwatt` provider can shadow the bundled model list.** If you've previously added a Neuralwatt provider to Pi (via `pi /provider`, a prior `models.json`, or another extension), it can take precedence and the long-context aliases below may not appear in `/model` or may not route correctly. Before copying, check `pi /provider` and `~/.pi/agent/models.json` for an existing `neuralwatt` entry — remove it (or merge the bundled `models` array into it) so the canonical list from this repo is what Pi sees.
-
-### 4. Copy the extension
-
-Pi auto-discovers extensions under `~/.pi/agent/extensions/`:
-
-```bash
-mkdir -p ~/.pi/agent/extensions
-cp neuralwatt-tools/plugins/pi/extensions/neuralwatt-mcr.ts ~/.pi/agent/extensions/
-```
-
-### 5. Launch Pi and pick a model
+### 3. Launch Pi and pick a model
 
 ```bash
 pi
@@ -70,7 +69,20 @@ Open the model picker with `/model` (or `Ctrl+L`) and pick one of the MCR long-c
 - `neuralwatt/kimi-k2.6-long` — Kimi K2.6 with 1M virtual context
 - `neuralwatt/glm-5.1-long` — GLM 5.1 with 1M virtual context
 
-Standard non-MCR models (e.g., `glm-5-fast`, `kimi-k2.6-fast`) are also listed in `models.json` and work as normal Neuralwatt models — the extension only activates for MCR-capable models.
+Standard non-MCR models (e.g., `glm-5-fast`, `kimi-k2.6-fast`) are registered by the extension too and work as normal Neuralwatt models — the MCR behaviour only activates for MCR-capable models.
+
+## Updating
+
+The extension is a Pi package, so updating is one command — no re-clone, no file
+copy:
+
+```bash
+pi update                                  # update pi + all installed packages
+pi update npm:@neuralwatt/pi-mcr-extension # update just this extension
+```
+
+`pi list` shows what's installed; `pi remove npm:@neuralwatt/pi-mcr-extension`
+uninstalls it.
 
 ## Status bar
 
@@ -132,8 +144,8 @@ point the chip reverts to the standard view.
 
 ### Verifying the chip behaviour
 
-There's no automated TUI harness, so verify by hand after copying the updated
-extension into `~/.pi/agent/extensions/`:
+There's no automated TUI harness, so verify by hand after a `pi update` (or a
+fresh `pi install`):
 
 1. **Normal fast turn** — on `neuralwatt/glm-5.1-long`, send a short prompt that
    responds within a few seconds. The chip should stay on `MCR <fp> | drop<N>`
@@ -186,13 +198,14 @@ those base-model/fast/flex IDs too and wrongly lit the chip on them — see
 
 - **`nw-energy` status bar may show `--` during streaming.** Energy data is currently only emitted on the non-streaming response path; the streaming SSE body does not yet include it. The `nw-mcr` indicator works on both paths. This is tracked and expected to be addressed in a future Neuralwatt API update.
 - **If a session ever looks stuck** (no responses, repeated drop events, garbled state), exit Pi and start a fresh session — the server-side MCR state resets per conversation ID.
-- **Token cost shows $0.00.** Intentional. All Neuralwatt models bill by energy, not tokens, so the `cost` fields in `models.json` are zeroed. Use the `nw-energy` status bar (and `nw-usage` CLI in this repo) for actual usage tracking.
+- **Token cost shows $0.00.** Intentional. All Neuralwatt models bill by energy, not tokens, so the `cost` fields in the extension's model definitions are zeroed. Use the `nw-energy` status bar (and `nw-usage` CLI in this repo) for actual usage tracking.
 
 ## Troubleshooting
 
-- **Extension not loading** — Check that the file is at `~/.pi/agent/extensions/neuralwatt-mcr.ts` and Pi's startup output for parse errors.
+- **Extension not loading** — Confirm it's installed with `pi list`, and check Pi's startup output for parse errors. Reinstall with `pi install npm:@neuralwatt/pi-mcr-extension` if needed.
+- **Models don't appear in `/model`** — The extension registers the `neuralwatt` provider and its models on load. If the aliases are missing, a pre-existing `neuralwatt` entry in `~/.pi/agent/models.json` is likely shadowing them — see the heads-up under [Install](#install).
 - **No MCR headers in responses** — Only MCR-backed models (the `-long` variants) return MCR headers. Standard models like `glm-5-fast` don't use MCR.
-- **API key not picked up** — `NEURALWATT_API_KEY` must be exported in the shell where you launch `pi`. The models config references the env var by name, so the value is resolved at Pi startup.
+- **API key not picked up** — `NEURALWATT_API_KEY` must be exported in the shell where you launch `pi`. The provider config references the env var by name, so the value is resolved at Pi startup.
 
 ## Architecture
 

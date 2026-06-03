@@ -128,6 +128,31 @@ describe("X-NW-Conversation-ID header wiring", () => {
     expect(cfg.headers["X-NW-Conversation-ID"].startsWith("$")).toBe(false);
   });
 
+  it("declares the full provider inline (self-contained package — no models.json)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    const cfg = pi.providers["neuralwatt"];
+    // baseUrl + api must be present so the provider stands alone without a
+    // models.json-derived entry to inherit from.
+    expect(cfg.baseUrl).toBe("https://api.neuralwatt.com/v1");
+    expect(cfg.api).toBe("openai-completions");
+    expect(cfg.apiKey).toBe("NEURALWATT_API_KEY");
+
+    // The model list is registered inline, and the MCR long-context aliases
+    // (the whole point of the extension) are present.
+    expect(Array.isArray(cfg.models)).toBe(true);
+    const ids = cfg.models.map((m: { id: string }) => m.id);
+    expect(ids).toContain("neuralwatt/glm-5.1-long");
+    expect(ids).toContain("neuralwatt/kimi-k2.6-long");
+
+    // Every model carries the OpenAI-compat shim and zeroed (energy-billed) cost.
+    for (const m of cfg.models) {
+      expect(m.compat).toMatchObject({ maxTokensField: "max_tokens" });
+      expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    }
+  });
+
   it("seeds X_NW_CONVERSATION_ID so the header resolves to a real value on the first request", async () => {
     const pi = makeMockPi();
     (await loadExtension())(pi);
