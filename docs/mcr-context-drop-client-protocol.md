@@ -232,8 +232,6 @@ The protocol applies to MCR-backed (`virtual_context`) models. Current ones (acc
 |----------|------------------------|-----------------------------------|
 | `neuralwatt/glm-5.1-long` | ~198K | 1,048,576 |
 | `neuralwatt/kimi-k2.6-long` | 256K | 1,048,576 |
-| `neuralwatt/glm-5.1-fast-long` | ~198K | 1,048,576 |
-| `neuralwatt/kimi-k2.6-fast-long` | 256K | 1,048,576 |
 
 The **advertised window** is what `/v1/models` reports and what your client's auto-compaction logic keys off of — deliberately large so clients don't compact early (see [the fallback](#fallback-zero-integration)). The **backend context** is the real per-call limit MCR compacts against server-side; you never have to manage it.
 
