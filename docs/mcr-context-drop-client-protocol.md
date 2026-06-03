@@ -11,7 +11,7 @@
 > - **New stream frames you must tolerate:** `event: mcr-status` heartbeats during in-flight compaction. Ignore SSE events/fields you don't recognize.
 > - **New server-resolved tool:** the model may emit a `mcr_lookup` tool call. The **server** resolves it — your client must not reject or try to execute it. See [The `mcr_lookup` tool](#the-mcr_lookup-tool).
 > - Updated model list and informational headers.
-> - Clarified that **client-side auto-compaction must be disabled** — a client that compacts at a percentage of the advertised context window will undercut MCR. See [Tier 1](#tier-1-zero-integration-with-one-caveat).
+> - Clarified that **client-side auto-compaction must be disabled** — a client that compacts at a percentage of the advertised context window will undercut MCR. See [the fallback](#fallback-zero-integration).
 
 ---
 
@@ -23,13 +23,13 @@ The **context-drop protocol** solves the *client-side* resource problem: as a co
 
 Result: client memory and bandwidth stay bounded, the server rebuilds full context from its store, and the user sees no quality loss.
 
-You do **not** have to implement any of this to use MCR (see [Tier 1](#tier-1-zero-integration)). The protocol is a bandwidth/memory optimization for long sessions.
+You do **not** have to implement any of this to use MCR (see [the fallback](#fallback-zero-integration)). The protocol is a bandwidth/memory optimization for long sessions.
 
 ---
 
 ## Quick start
 
-**First, disable your client's own auto-compaction on MCR models** (or raise its threshold to the advertised window). This is the one step you can't skip — otherwise your client compacts the conversation itself and you never get MCR. See [Tier 1](#tier-1-zero-integration-with-one-caveat).
+**First, disable your client's own auto-compaction on MCR models** (or raise its threshold to the advertised window). This is the one step you can't skip — otherwise your client compacts the conversation itself and you never get MCR. See [the fallback](#fallback-zero-integration).
 
 Then a complete, robust client needs exactly two things:
 
@@ -66,32 +66,32 @@ In streaming mode the body may include frames beyond normal `data:` deltas:
 
 ---
 
-## Integration Tiers
+## How to integrate
 
-### Tier 1: Zero integration (with one caveat)
+**Recommended: implement the header-based context drop below.** It's ~20 lines in any language and is what Neuralwatt's own clients (e.g. the Pi extension) do. A no-code "send everything and read nothing" fallback also works, but it carries a sharp caveat — your client's own auto-compaction — so treat it as a backup for when you genuinely can't read response headers.
 
-Send full conversation history every turn; MCR compacts server-side transparently. No protocol code required.
+### Recommended: header-based context drop
 
-**The catch — your client's own auto-compaction.** Most coding agents and chat clients run their *own* context management that compacts (summarizes or truncates) history once it reaches some percentage of the model's **advertised** context window. That defeats MCR: the client summarizes history MCR is storing verbatim, degrading retrieval, and caps the conversation at the client's own threshold instead of letting it grow.
+Send `X-NW-Conversation-ID`, read three response headers, trim your local array. That's the whole protocol; the [detailed reference](#header-based-context-drop-in-detail) is below.
 
-MCR models advertise a large **virtual** window via `/v1/models` (currently **1,048,576 tokens**, far above the backend's real ~198K/256K) precisely so well-behaved clients don't compact early. But:
+Why this is the default path:
 
-- A client that **ignores the advertised window** and assumes a fixed limit (e.g. 200K) auto-compacts long before MCR ever would.
-- Even a client that **respects** the 1M window will eventually auto-compact as full local history climbs toward it — because in Tier 1 you never drop anything locally.
+- **Bounds client memory and upload size** on long sessions — you keep only the recent tail locally; the server holds the rest.
+- **Keeps your *local* token count well below the advertised window**, so your client's own auto-compaction never fires and undercuts MCR. (Still disable client-side auto-compaction explicitly — don't rely on staying under the threshold by luck.)
 
-**So Tier 1 is only truly "zero" if you turn off your client's auto-compaction** (or set its threshold at/above the advertised window). Otherwise it isn't MCR you're getting — it's your client's compaction with extra steps. The remaining cost is client memory and upload size growing linearly with the conversation.
+### Fallback: zero integration
 
-**Recommendation:** disable client-side auto-compaction *and* implement Tier 2. Tier 2 keeps local history small, so your client never approaches its compaction threshold in the first place.
+Send full conversation history every turn and read nothing back. MCR still compacts server-side, so this works with no protocol code — but it's a backup, not the happy path, for two reasons:
 
-### Tier 2: Header-based context drop (recommended)
+**1. Your client's own auto-compaction will undercut MCR.** Most coding agents and chat clients compact (summarize or truncate) history once it reaches some percentage of the model's **advertised** context window. That summarizes history MCR is storing verbatim — degrading retrieval and capping the conversation at the client's own threshold instead of letting it grow. MCR advertises a large **virtual** window via `/v1/models` (currently **1,048,576 tokens**, far above the backend's real ~198K/256K) precisely so well-behaved clients don't compact early. But a client that **ignores** it (assumes a fixed limit like 200K) compacts early anyway, and even a client that **respects** it eventually compacts as full, never-dropped history climbs toward 1M. **So you MUST disable your client's auto-compaction** (or raise its threshold to the advertised window) — otherwise it isn't MCR you're getting, it's your client's compaction with extra steps.
 
-Send `X-NW-Conversation-ID`, read three response headers, trim your local array. ~20 lines in any language. This is the whole protocol. The rest of this section is the detail.
+**2. Client memory and upload size grow without bound** with conversation length, since you never drop anything locally.
 
-Beyond bounding memory and bandwidth, trimming has a second benefit: it keeps your **local** token count well below the advertised window, so your client's own auto-compaction never fires and interferes with MCR. (Still disable client-side auto-compaction explicitly — don't rely on staying under the threshold by luck.)
+Use this only when your runtime truly can't read HTTP response headers. Otherwise, implement the recommended approach above.
 
 ---
 
-## Tier 2 in detail
+## Header-based context drop, in detail
 
 ### Request headers
 
@@ -235,7 +235,7 @@ The protocol applies to MCR-backed (`virtual_context`) models. Current ones (acc
 | `neuralwatt/glm-5.1-fast-long` | ~198K | 1,048,576 |
 | `neuralwatt/kimi-k2.6-fast-long` | 256K | 1,048,576 |
 
-The **advertised window** is what `/v1/models` reports and what your client's auto-compaction logic keys off of — deliberately large so clients don't compact early (see [Tier 1](#tier-1-zero-integration-with-one-caveat)). The **backend context** is the real per-call limit MCR compacts against server-side; you never have to manage it.
+The **advertised window** is what `/v1/models` reports and what your client's auto-compaction logic keys off of — deliberately large so clients don't compact early (see [the fallback](#fallback-zero-integration)). The **backend context** is the real per-call limit MCR compacts against server-side; you never have to manage it.
 
 Non-MCR models (e.g. `glm-5.1-fast`, `kimi-k2.6`) return **no** MCR headers or metadata — handle their absence gracefully (treat missing `X-MCR-Safe-Drop-Before` as `0`).
 
@@ -265,7 +265,7 @@ A: No. The server only guarantees reconstruction for messages at or after what i
 A: No. Session state is persisted server-side. On the next successful request (same `X-NW-Conversation-ID`) you'll get fresh, monotonic drop pointers and continue from there.
 
 **Q: Should I disable my client's own compaction?**
-A: **Yes — this is the single most important thing.** If your client auto-compacts at a percentage of the advertised window, it will summarize messages MCR has already stored verbatim, degrade retrieval, and cap the conversation at its own threshold instead of MCR's much larger one. Turn off client-side auto-compaction on MCR models (or set its threshold at/above the advertised window). See [Tier 1](#tier-1-zero-integration-with-one-caveat).
+A: **Yes — this is the single most important thing.** If your client auto-compacts at a percentage of the advertised window, it will summarize messages MCR has already stored verbatim, degrade retrieval, and cap the conversation at its own threshold instead of MCR's much larger one. Turn off client-side auto-compaction on MCR models (or set its threshold at/above the advertised window). See [the fallback](#fallback-zero-integration).
 
 **Q: The model advertises a 1M context window but the docs mention ~198K/256K — which is real?**
 A: Both, for different purposes. `/v1/models` advertises the large **virtual** window (so your client doesn't auto-compact early); MCR compacts against the smaller **backend** limit server-side. You manage neither — send history (or drop per the headers) and MCR handles the backend limit for you.
