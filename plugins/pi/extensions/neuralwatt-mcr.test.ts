@@ -215,3 +215,156 @@ describe("context handler: isMCRModel-first guard", () => {
     expect(log).toContain("no_session_fp");
   });
 });
+
+describe("#4111 in-session branch isolation", () => {
+  // Pi's SessionManager.branch() reassigns the leaf pointer within the same
+  // session file but does NOT change the session id. Before this fix every
+  // branch sent the gateway the same X-NW-Conversation-ID and corrupted MCR
+  // state across siblings (spiffytech 2026-06-03 report — 4 traces, same pi
+  // session id, same prod session_fp). The fix carries the branch's leaf id
+  // as a suffix on the conv id so each branch gets its own gateway-side fp.
+
+  function makeBranchCtx(modelId: string, opts?: {
+    sessionId?: string;
+    leafId?: string | null;
+  }) {
+    const sessionId = opts?.sessionId ?? "sess-test-1234";
+    let currentLeafId: string | null = opts?.leafId ?? null;
+    return {
+      model: { id: modelId },
+      sessionManager: {
+        getSessionId: () => sessionId,
+        getLeafId: () => currentLeafId,
+        getBranch: () => [],
+        setLeafId: (id: string | null) => { currentLeafId = id; },
+      },
+      ui: { setStatus: () => {} },
+    };
+  }
+
+  it("session_start uses the bare session id (no leaf suffix)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const sessionStart = pi.handlers.get("session_start")!;
+    await sessionStart({}, makeBranchCtx("neuralwatt/glm-5.1-long"));
+
+    // Bare session id — no leaf suffix because no branch has been taken yet.
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234");
+  });
+
+  it("session_tree pins the new leaf id into the conv id", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeBranchCtx("neuralwatt/glm-5.1-long");
+
+    // First, boot the session.
+    await pi.handlers.get("session_start")!({}, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234");
+
+    // User navigates to a branch — pi emits session_tree with the new leaf
+    // id in the event payload.
+    const sessionTree = pi.handlers.get("session_tree")!;
+    await sessionTree({ newLeafId: "leaf-aaa1" }, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234:leaf-aaa1");
+
+    // User navigates to a DIFFERENT branch (sibling). Conv id updates again.
+    await sessionTree({ newLeafId: "leaf-bbb2" }, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234:leaf-bbb2");
+  });
+
+  it("falls back to sessionManager.getLeafId() when the event lacks newLeafId", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeBranchCtx(
+      "neuralwatt/glm-5.1-long", { leafId: "leaf-from-mgr" },
+    );
+
+    await pi.handlers.get("session_start")!({}, ctx);
+    // Older pi versions might not include newLeafId on the event payload —
+    // the handler must still produce a branched conv id.
+    await pi.handlers.get("session_tree")!({}, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe(
+      "sess-test-1234:leaf-from-mgr",
+    );
+  });
+
+  it("before_provider_request preserves the active branch leaf in the conv id", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeBranchCtx("neuralwatt/glm-5.1-long");
+
+    await pi.handlers.get("session_start")!({}, ctx);
+    await pi.handlers.get("session_tree")!({ newLeafId: "branch-x" }, ctx);
+
+    // ``before_provider_request`` is the per-request env re-derivation;
+    // it must read the active branch leaf, not the bare session id, so the
+    // wire keeps the branched conv id across many turns in the same branch.
+    const beforeRequest = pi.handlers.get("before_provider_request")!;
+    await beforeRequest({ payload: {} }, ctx);
+
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234:branch-x");
+  });
+
+  it("session_start clears the active branch (fresh pi invocation starts bare)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeBranchCtx("neuralwatt/glm-5.1-long");
+
+    // Take a branch, then re-boot the session (simulates a fresh `pi`
+    // invocation on the same session file).
+    await pi.handlers.get("session_start")!({}, ctx);
+    await pi.handlers.get("session_tree")!({ newLeafId: "branch-x" }, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234:branch-x");
+
+    // Pi rebuilds the agent — session_start fires again. The branch state
+    // must reset to bare so the new invocation isn't pinned to a stale leaf.
+    // (Use a different session id so we don't trip the double-fire guard.)
+    const ctx2 = makeBranchCtx(
+      "neuralwatt/glm-5.1-long", { sessionId: "sess-test-9999" },
+    );
+    await pi.handlers.get("session_start")!({}, ctx2);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-9999");
+  });
+
+  it("an empty / undefined leaf id leaves the conv id bare (no trailing colon)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeBranchCtx(
+      "neuralwatt/glm-5.1-long", { leafId: null },
+    );
+
+    await pi.handlers.get("session_start")!({}, ctx);
+    // session_tree event with no newLeafId AND ctx.getLeafId() returning null
+    // — the conv id should stay bare. A trailing colon (e.g.
+    // ``sess-test-1234:``) would tip the gateway into thinking this is a
+    // branch when it isn't.
+    await pi.handlers.get("session_tree")!({}, ctx);
+    expect(process.env.X_NW_CONVERSATION_ID).toBe("sess-test-1234");
+  });
+
+  it("the branched conv id is well-formed and passes server-side validation", async () => {
+    // Server-side rule (mirrors mcr_v3_session.validate_client_conversation_id):
+    // non-empty, ≤ 256 chars, printable. The extension validates the composed
+    // form before substituting so a malformed pi id never bounces off the
+    // server as HTTP 400.
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    // Realistic-shape ids: 36-char UUID + 8-hex leaf = 45 chars, well under 256.
+    const realisticCtx = makeBranchCtx("neuralwatt/glm-5.1-long", {
+      sessionId: "019e8e34-e193-7d0c-b5b3-f0dcb5014328",
+      leafId: "f10fd666",
+    });
+    await pi.handlers.get("session_start")!({}, realisticCtx);
+    await pi.handlers.get("session_tree")!(
+      { newLeafId: "f10fd666" }, realisticCtx,
+    );
+    const composed = process.env.X_NW_CONVERSATION_ID!;
+    expect(composed).toBe(
+      "019e8e34-e193-7d0c-b5b3-f0dcb5014328:f10fd666",
+    );
+    expect(composed.length).toBeLessThan(256);
+    // All printable ASCII — no control chars.
+    expect(/^[\x20-\x7E]+$/.test(composed)).toBe(true);
+  });
+});

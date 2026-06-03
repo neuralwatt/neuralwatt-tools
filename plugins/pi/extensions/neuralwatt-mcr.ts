@@ -22,7 +22,15 @@ import { randomUUID } from "node:crypto";
 //           the package installable with `pi install npm:@neuralwatt/pi-mcr-extension`
 //           and updatable with `pi update` — the extension file is the only
 //           resource the package ships.
-const EXTENSION_VERSION = "2.2.0";
+//   2.3.0 — rotate X-NW-Conversation-ID on session_tree so each in-session
+//           branch gets its own gateway-side session_fp. Pi's branch()
+//           reassigns the leaf pointer within the same session file but
+//           keeps the session id stable, so before this fix the gateway saw
+//           the same conv-id for every branch and MCR state corrupted
+//           across siblings (inference_frontend#4111, spiffytech 2026-06-03
+//           report). Now the conv-id becomes ``${sessionId}:${newLeafId}``
+//           on branch nav and stays bare on session boot.
+const EXTENSION_VERSION = "2.3.0";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -106,6 +114,25 @@ interface SessionState {
   contextTokens: number;
   lastMcrMeta: MCRMetadata | null;
   lastEnergy: EnergyData | null;
+  // #4111: pi's in-session ``SessionManager.branch()`` (`session-manager.js:913`)
+  // reassigns the leaf pointer within the same session file but does NOT
+  // change the session id. Without this field we'd send the gateway the
+  // same ``X-NW-Conversation-ID`` for every branch of a session, the
+  // gateway would derive the same ``session_fp``, and MCR's persisted refs,
+  // manifest, and durable pointers would commingle across branches —
+  // confusing the model into amnesia loops (spiffytech 2026-06-03 report,
+  // 4 traces sharing pi session id ``019e8e34…`` and prod ``session_fp``
+  // ``3bb342a0…``). Carrying the active branch's leaf id here lets us
+  // compose a per-branch conv id ``${sessionId}:${leafId}`` so each branch
+  // gets its own gateway-side session_fp.
+  //
+  // Set in the ``session_tree`` handler when the user navigates to a
+  // different branch; cleared in ``session_start`` so a fresh pi
+  // invocation always starts at the bare ``sessionId``. Reused by
+  // ``before_provider_request`` on every outbound request (which re-derives
+  // the env var so the SDK re-reads ``process.env`` and the wire sees the
+  // up-to-date value).
+  activeBranchLeafId: string | null;
   // In-flight request UX. When an MCR request is sent we record the wall-clock
   // send time so the chip can surface a neutral "working…" indicator on long
   // waits, and cleared on the first ``message_update`` / ``message_end``.
@@ -130,6 +157,7 @@ const state: SessionState = {
   contextTokens: 0,
   lastMcrMeta: null,
   lastEnergy: null,
+  activeBranchLeafId: null,
   inFlightSince: null,
   inFlightTickerHandle: null,
 };
@@ -336,19 +364,41 @@ function getUuidFallback(): string {
   return uuidFallback;
 }
 
-type ConversationIdSource = "pi-session" | "uuid-fallback";
+type ConversationIdSource = "pi-session" | "pi-session-branched" | "uuid-fallback";
 
 function resolveConversationId(
   ctx: ExtensionContext,
+  branchLeafId?: string | null,
 ): { id: string; source: ConversationIdSource } {
   // Preferred source: Pi's own session id. Stable across auto-compact in a
   // single `pi` session, distinct across sessions, naturally string-form.
+  //
+  // #4111: when ``branchLeafId`` is supplied (the user navigated to a
+  // different branch in pi's session tree), compose ``${sessionId}:${leafId}``
+  // so each branch within a single pi session gets its own conversation
+  // identity on the wire. Pi's in-session ``branch()`` doesn't change the
+  // session id (same JSONL file), so without this suffix every branch would
+  // share one gateway-side ``session_fp`` and MCR state would commingle —
+  // observed as model amnesia and lookup-recall pollution in the
+  // spiffytech 2026-06-03 report. Subsequent ``branchLeafId`` updates from
+  // the ``session_tree`` event keep the wire id in lock-step with the
+  // active branch; the bare ``sessionId`` is restored on session boot.
   try {
     const piSessionId = ctx.sessionManager?.getSessionId?.();
     if (
       typeof piSessionId === "string" &&
       isWellFormedConversationId(piSessionId)
     ) {
+      if (
+        typeof branchLeafId === "string" &&
+        branchLeafId.length > 0 &&
+        isWellFormedConversationId(`${piSessionId}:${branchLeafId}`)
+      ) {
+        return {
+          id: `${piSessionId}:${branchLeafId}`,
+          source: "pi-session-branched",
+        };
+      }
       return { id: piSessionId, source: "pi-session" };
     }
   } catch {
@@ -553,11 +603,16 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    // #4111: clear the active branch suffix at session boot so a fresh pi
+    // invocation always starts with the bare session id on the wire. Branch
+    // navigation later in the session (``session_tree``) re-pins this.
+    state.activeBranchLeafId = null;
+
     // Upgrade X_NW_CONVERSATION_ID to Pi's stable session-id as early as
     // possible — session_start fires before any provider request and is the
     // earliest hook with ctx.
     const { id: conversationId, source: conversationIdSource } =
-      resolveConversationId(ctx);
+      resolveConversationId(ctx, state.activeBranchLeafId);
     process.env[CONV_ID_ENV] = conversationId;
 
     // Guard against double-fire: Pi sometimes emits session_start without
@@ -840,8 +895,14 @@ export default function (pi: ExtensionAPI) {
     // next outbound request as the real X-NW-Conversation-ID HTTP header
     // — no body touch. See the header-wiring block at the top of this fn
     // and pi-header-surface.md for the full mechanism trace.
+    //
+    // #4111: carry the active branch suffix (set by ``session_tree`` when
+    // the user navigates between branches in pi's session tree) so each
+    // branch gets a distinct ``session_fp`` on the gateway. Without this,
+    // pi's in-session ``branch()`` would silently share gateway state
+    // across siblings — the spiffytech amnesia shape.
     const { id: conversationId, source: conversationIdSource } =
-      resolveConversationId(ctx);
+      resolveConversationId(ctx, state.activeBranchLeafId);
     process.env[CONV_ID_ENV] = conversationId;
     nwlog("conversation_id_attached", {
       conversation_id_prefix: conversationId.slice(0, 8),
@@ -916,7 +977,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("session_tree", async (_event, ctx) => {
+  pi.on("session_tree", async (event, ctx) => {
     // Branch navigation invalidates MCR session state — sessionFp and
     // safeDropBefore are tied to a specific message sequence that no
     // longer matches the new branch. Clear everything and let the
@@ -931,6 +992,29 @@ export default function (pi: ExtensionAPI) {
     state.lastMcrMeta = null;
     state.lastEnergy = null;
 
+    // #4111: pin the active branch's leaf id so the wire-side
+    // X-NW-Conversation-ID becomes ``${sessionId}:${newLeafId}`` for this
+    // branch. Without this the gateway derives the same session_fp for
+    // every branch within one pi session and MCR state corrupts across
+    // siblings (spiffytech 2026-06-03 report). Prefer the event's
+    // ``newLeafId`` payload (deterministic, what pi just navigated to);
+    // fall back to ``getLeafId()`` if the event shape changes upstream.
+    const eventLeafId =
+      typeof (event as { newLeafId?: unknown })?.newLeafId === "string"
+        ? ((event as { newLeafId: string }).newLeafId)
+        : null;
+    const fallbackLeafId = ctx.sessionManager?.getLeafId?.() ?? null;
+    state.activeBranchLeafId = eventLeafId ?? fallbackLeafId;
+
+    // Re-derive the env var now so any tooling reading it between events
+    // (e.g. status-line scripts) sees the branched conv id. The SDK will
+    // re-read it on the next stream regardless, so this is just a freshness
+    // courtesy — the wire correctness is owned by before_provider_request.
+    const { id: conversationId } = resolveConversationId(
+      ctx, state.activeBranchLeafId,
+    );
+    process.env[CONV_ID_ENV] = conversationId;
+
     // Replay energy events from the session log for the new branch.
     for (const entry of ctx.sessionManager.getBranch()) {
       if (
@@ -943,7 +1027,12 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    nwlog("session_tree", { total_energy_replayed: state.totalEnergyJoules });
+    nwlog("session_tree", {
+      total_energy_replayed: state.totalEnergyJoules,
+      branch_leaf_id_prefix: state.activeBranchLeafId
+        ? state.activeBranchLeafId.slice(0, 8)
+        : null,
+    });
     updateStatusBar(ctx);
   });
 

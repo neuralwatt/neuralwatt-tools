@@ -1,6 +1,6 @@
 {
   "name": "@neuralwatt/pi-mcr-extension",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Neuralwatt MCR extension for Pi — 1M virtual context via server-side compaction",
   "type": "module",
   "license": "MIT",

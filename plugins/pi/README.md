@@ -221,7 +221,13 @@ Pi extension (neuralwatt-mcr.ts)
                                  starts neutral in-flight chip (silent until
                                  a long wait — never claims "optimizing")
   +- session_before_compact    cancels Pi compaction when MCR active
-  +- session_start             resets state (incl. in-flight chip)
+  +- session_start             resets state (incl. in-flight chip); pins the
+                                 bare session id as the gateway conv id
+  +- session_tree              pins the new branch's leaf id into the conv
+                                 id (sessionId:leafId) so each in-session
+                                 branch gets its own gateway session_fp
+                                 (v2.3.0+ — see inference_frontend#4111 for
+                                 the bug class this addresses)
   +- session_shutdown          clears status bar (incl. in-flight ticker)
 ```
 
