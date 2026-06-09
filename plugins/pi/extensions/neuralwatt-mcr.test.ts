@@ -13,7 +13,7 @@
 // We run each test in an isolated $HOME so the extension's append-only log
 // file is observable and does not leak across tests.
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -98,11 +98,20 @@ beforeAll(async () => {
   extDefault = mod.default as (pi: MockPi) => void;
 });
 
+// tools#44: the dual-instance guard claims a process-global sentinel on
+// globalThis at activation. Every test below activates the extension at least
+// once, so the sentinel must be cleared between tests or the second test's
+// activation would be (correctly!) blocked as a dual instance.
+function clearDualInstanceSentinel() {
+  delete (globalThis as Record<string, unknown>).__NEURALWATT_MCR_ACTIVE__;
+}
+
 beforeEach(() => {
   // Reset the env-var seeds and the log between tests. Re-seed the conversation
   // id the same way the extension does at module load (it only seeds once).
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
+  clearDualInstanceSentinel();
   try {
     fs.rmSync(logPath());
   } catch {
@@ -113,6 +122,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
+  clearDualInstanceSentinel();
 });
 
 describe("X-NW-Conversation-ID header wiring", () => {
@@ -366,5 +376,264 @@ describe("#4111 in-session branch isolation", () => {
     expect(composed.length).toBeLessThan(256);
     // All printable ASCII — no control chars.
     expect(/^[\x20-\x7E]+$/.test(composed)).toBe(true);
+  });
+});
+
+describe("#44 dual-instance guard", () => {
+  // Pi auto-loads ~/.pi/agent/extensions/neuralwatt-mcr.ts in addition to any
+  // -e <path> copy, so two copies of the module — each with its own module
+  // scope — can be activated in one process. The 2026-06-09 forensics show
+  // exactly that (every log event doubled, 2.3.0 + 2.1.1 both live), with two
+  // drop-protocol state machines racing one session. First activation wins;
+  // the second must register NOTHING and say so loudly.
+
+  it("first activation claims the globalThis sentinel and registers normally", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    expect(pi.providers["neuralwatt"]).toBeTruthy();
+    expect(pi.handlers.size).toBeGreaterThan(0);
+
+    const sentinel = (globalThis as Record<string, unknown>)
+      .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
+    expect(sentinel).toBeTruthy();
+    expect(sentinel.version).toBe("2.4.0");
+    expect(typeof sentinel.module).toBe("string");
+    expect(typeof sentinel.ts).toBe("string");
+
+    // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
+    // bump, so prod can verify the rollout.
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.4.0");
+  });
+
+  it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    const pi2 = makeMockPi();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      ext(pi1);
+      expect(pi1.providers["neuralwatt"]).toBeTruthy();
+      expect(pi1.handlers.size).toBeGreaterThan(0);
+
+      ext(pi2);
+      // No HTTP hooks, no handlers, no provider — nothing at all.
+      expect(Object.keys(pi2.providers)).toHaveLength(0);
+      expect(pi2.handlers.size).toBe(0);
+
+      // Loud in the extension log…
+      const blockedLine = readLog()
+        .split("\n")
+        .find((l) => l.includes("dual_instance_blocked"));
+      expect(blockedLine).toBeTruthy();
+      const blocked = JSON.parse(blockedLine!);
+      expect(blocked.winner.version).toBe("2.4.0");
+      expect(blocked.loser.version).toBe("2.4.0");
+
+      // …and on stderr (visible interactively).
+      expect(errSpy).toHaveBeenCalled();
+      expect(String(errSpy.mock.calls[0][0])).toContain(
+        "DUAL INSTANCE BLOCKED",
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("fail-open: a sealed sentinel slot never blocks activation", async () => {
+    // Simulate a hostile/frozen global: the sentinel slot exists but cannot
+    // be written (strict-mode write throws). Activation must still register
+    // everything — a doubly-registered extension is the known-bad state we
+    // survived; a never-registered one is strictly worse — and log the
+    // anomaly.
+    Object.defineProperty(globalThis, "__NEURALWATT_MCR_ACTIVE__", {
+      value: undefined,
+      writable: false,
+      configurable: true, // so the afterEach cleanup can remove it
+    });
+
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    expect(pi.providers["neuralwatt"]).toBeTruthy();
+    expect(pi.handlers.size).toBeGreaterThan(0);
+    expect(readLog()).toContain("dual_instance_guard_anomaly");
+  });
+});
+
+describe("#44 post-drop stale-window self-heal", () => {
+  // Forensics 2026-06-09: after honoring a server context-drop, the
+  // extension's outbound window froze at a 114-message snapshot for 35-40
+  // minute stretches while 575+ new local turns never went out; the
+  // server-side breaker fired ~24k times into the stale window with zero
+  // effect. The invariant detects "window signature identical to the previous
+  // request WHILE local history grew" and, after N=2 consecutive triggers,
+  // resets the drop bookkeeping and sends the FULL history.
+
+  function makeMCRCtx(sessionId: string) {
+    return {
+      model: { id: "neuralwatt/glm-5.1-long" },
+      sessionManager: { getSessionId: () => sessionId, getBranch: () => [] },
+      ui: { setStatus: () => {} },
+    };
+  }
+
+  // History shape: 3 user anchors early (anchor floor = index 4, so
+  // dropStart = 5), then identical tool turns appended at the tail. Identical
+  // tail messages let a test freeze the window SIGNATURE (length + last-msg
+  // role/content-length) while the history grows, by moving safe_drop_before
+  // in lock-step — the simulated equivalent of whatever swallowed the new
+  // turns in prod.
+  function mkMsgs(n: number): Array<Record<string, unknown>> {
+    const msgs: Array<Record<string, unknown>> = [
+      { type: "user", content: "u1" },
+      { type: "assistant", content: "a1" },
+      { type: "user", content: "u2" },
+      { type: "assistant", content: "a2" },
+      { type: "user", content: "u3" },
+      { type: "assistant", content: "a3" },
+    ];
+    while (msgs.length < n) msgs.push({ type: "tool", content: "tool-result" });
+    return msgs;
+  }
+
+  // Drive the server side of the drop handshake: the gateway confirms it
+  // persisted history (stored_through) and authorizes the client to drop
+  // everything before safe_drop_before.
+  async function serverConfirm(
+    pi: MockPi,
+    ctx: unknown,
+    safeDropBefore: number,
+  ) {
+    await pi.handlers.get("after_provider_response")!(
+      {
+        headers: {
+          "x-mcr-session-fp": "fp-test-4444",
+          "x-mcr-safe-drop-before": String(safeDropBefore),
+          "x-mcr-stored-through": String(safeDropBefore),
+        },
+      },
+      ctx,
+    );
+  }
+
+  it("self-heals after N consecutive frozen-window requests while local history grows", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-heal-1");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await pi.handlers.get("session_start")!({}, ctx);
+      const context = pi.handlers.get("context")!;
+
+      // Turn 1: server authorizes drop<8; window built normally (baseline).
+      // drop range [5, 8) -> 7 of 10 messages go out.
+      await serverConfirm(pi, ctx, 8);
+      const r1 = await context({ messages: mkMsgs(10) }, ctx);
+      expect(r1.messages).toHaveLength(7);
+
+      // Turn 2: local history grew (11 msgs) but the outgoing window is
+      // shape-identical (same length, same tail) — trigger 1 of 2. Still
+      // drops normally.
+      await serverConfirm(pi, ctx, 9);
+      const r2 = await context({ messages: mkMsgs(11) }, ctx);
+      expect(r2.messages).toHaveLength(7);
+      expect(readLog()).not.toContain("stale_window_self_heal");
+
+      // Turn 3: frozen again while local grew — trigger 2 = N. SELF-HEAL:
+      // no message mutation (the FULL 12-message history goes out), loud log
+      // event + console.error.
+      await serverConfirm(pi, ctx, 10);
+      const r3 = await context({ messages: mkMsgs(12) }, ctx);
+      expect(r3).toBeUndefined();
+
+      const healLine = readLog()
+        .split("\n")
+        .find((l) => l.includes("stale_window_self_heal"));
+      expect(healLine).toBeTruthy();
+      const heal = JSON.parse(healLine!);
+      expect(heal.repeats).toBe(2);
+      expect(heal.window_len).toBe(7);
+      expect(heal.local_len).toBe(12);
+      expect(errSpy).toHaveBeenCalled();
+      expect(String(errSpy.mock.calls[0][0])).toContain(
+        "STALE WINDOW SELF-HEAL",
+      );
+
+      // Post-heal: drop bookkeeping was reset, so the next request also
+      // sends the full history (safe_drop_before is back to 0)…
+      const r4 = await context({ messages: mkMsgs(13) }, ctx);
+      expect(r4).toBeUndefined();
+      const log = readLog();
+      expect(log).toContain("safe_drop_before_zero");
+      // …and the heal does NOT loop: still exactly one heal event.
+      expect(log.match(/stale_window_self_heal/g)).toHaveLength(1);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("false-positive safety: a pure retry (identical window, NO local growth) never triggers", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-retry-1");
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+    await serverConfirm(pi, ctx, 8);
+
+    // The same 10-message history sent 4 times (e.g. network retries): the
+    // window signature is identical every time but the local history has NOT
+    // grown, so the two-sided trigger stays false and the drop keeps
+    // applying.
+    for (let i = 0; i < 4; i++) {
+      const r = await context({ messages: mkMsgs(10) }, ctx);
+      expect(r.messages).toHaveLength(7);
+    }
+    expect(readLog()).not.toContain("stale_window_self_heal");
+  });
+
+  it("false-positive safety: a normally advancing window never triggers", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-adv-1");
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+    await serverConfirm(pi, ctx, 8);
+
+    // safe_drop_before stays fixed while the history grows — the healthy
+    // shape: the window's tail carries each new local turn, so the signature
+    // advances every request and the streak never starts.
+    for (let n = 10; n <= 14; n++) {
+      const r = await context({ messages: mkMsgs(n) }, ctx);
+      expect(r.messages).toHaveLength(n - 3); // fixed 3-message drop range
+    }
+    expect(readLog()).not.toContain("stale_window_self_heal");
+  });
+
+  it("a single frozen request followed by an advancing one resets the streak", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-streak-1");
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+
+    // Baseline (10 msgs, drop<8 -> 7 out), then ONE frozen-while-growing
+    // request (trigger 1 of 2)…
+    await serverConfirm(pi, ctx, 8);
+    await context({ messages: mkMsgs(10) }, ctx);
+    await serverConfirm(pi, ctx, 9);
+    const r2 = await context({ messages: mkMsgs(11) }, ctx);
+    expect(r2.messages).toHaveLength(7);
+
+    // …then the window ADVANCES (same drop<9, history grows -> 8 out): the
+    // consecutive-trigger streak must reset…
+    const r3 = await context({ messages: mkMsgs(12) }, ctx);
+    expect(r3.messages).toHaveLength(8);
+
+    // …so a later single frozen request is trigger 1 again, not 2 — no heal.
+    await serverConfirm(pi, ctx, 10);
+    const r4 = await context({ messages: mkMsgs(13) }, ctx);
+    expect(r4.messages).toHaveLength(8);
+    expect(readLog()).not.toContain("stale_window_self_heal");
   });
 });

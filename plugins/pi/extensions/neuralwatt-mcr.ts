@@ -30,7 +30,22 @@ import { randomUUID } from "node:crypto";
 //           across siblings (inference_frontend#4111, spiffytech 2026-06-03
 //           report). Now the conv-id becomes ``${sessionId}:${newLeafId}``
 //           on branch nav and stays bare on session boot.
-const EXTENSION_VERSION = "2.3.0";
+//   2.4.0 — dual-instance guard + post-drop stale-window self-heal (tools#44,
+//           forensics 2026-06-09). Pi auto-loads
+//           ~/.pi/agent/extensions/neuralwatt-mcr.ts IN ADDITION to any
+//           ``-e <path>`` copy, so two copies — potentially different
+//           versions — race the same drop-protocol session (observed: every
+//           log event doubled, 2.3.0 + 2.1.1 both live, 3-hour runaway with
+//           the outbound window frozen at a 114-message snapshot while new
+//           local turns never went out). Guard: first activation claims a
+//           process-global sentinel on globalThis; later activations register
+//           nothing and log ``dual_instance_blocked``. Invariant: if the
+//           outgoing post-drop window signature repeats while the local
+//           history grows (STALE_WINDOW_HEAL_REPEATS consecutive requests),
+//           reset the drop bookkeeping and send the FULL history
+//           (``stale_window_self_heal``) so the server re-establishes
+//           stored_through. No wire-format changes otherwise.
+const EXTENSION_VERSION = "2.4.0";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -87,6 +102,68 @@ function nwlog(event: string, data: Record<string, unknown> = {}): void {
   }
 }
 
+// ── Dual-instance guard (tools#44) ──────────────────────────────────────────
+// Pi AUTO-LOADS ~/.pi/agent/extensions/neuralwatt-mcr.ts in addition to any
+// `-e <path>` copy, so two copies of this module — potentially DIFFERENT
+// VERSIONS — can be activated in one process. Two drop-protocol state machines
+// racing on the same session produced the 2026-06-09 catastrophic runaway
+// (every extension log event emitted twice, versions 2.3.0 + 2.1.1
+// simultaneously active). First activation wins; any later activation must
+// register nothing and say so loudly.
+//
+// The sentinel MUST live on globalThis, NOT module scope: two module copies
+// loaded from different paths each get their own module scope (exactly what
+// the dual-load evidence shows), so a module-scoped flag can never see the
+// other copy. globalThis is the only scope both copies share.
+const DUAL_INSTANCE_SENTINEL_KEY = "__NEURALWATT_MCR_ACTIVE__";
+
+interface DualInstanceSentinel {
+  version: string;
+  module: string;
+  ts: string;
+}
+
+// Best-effort hint of which file this module copy was loaded from, so the
+// dual_instance_blocked log can tell the auto-loaded copy from the -e one.
+function moduleHint(): string {
+  try {
+    return typeof import.meta?.url === "string" ? import.meta.url : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+// Claim the process-global activation sentinel. Returns the already-active
+// instance's sentinel when another copy won (caller must NOT register), or
+// null when this copy holds the claim and may register normally.
+//
+// Resilience: a frozen/sealed globalThis (or any other exotic environment
+// where the read/write throws) must NEVER break activation — fail OPEN to
+// registering and log the anomaly. A doubly-registered extension is the
+// known-bad state we already survived; a never-registered one is strictly
+// worse (no MCR at all).
+function claimDualInstanceSentinel(): DualInstanceSentinel | null {
+  try {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const existing = g[DUAL_INSTANCE_SENTINEL_KEY];
+    if (existing && typeof existing === "object") {
+      return existing as DualInstanceSentinel;
+    }
+    const sentinel: DualInstanceSentinel = {
+      version: EXTENSION_VERSION,
+      module: moduleHint(),
+      ts: new Date().toISOString(),
+    };
+    g[DUAL_INSTANCE_SENTINEL_KEY] = sentinel;
+    return null;
+  } catch (err) {
+    nwlog("dual_instance_guard_anomaly", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 interface MCRMetadata {
   session_fp: string;
   stored_through: number;
@@ -114,6 +191,15 @@ interface SessionState {
   contextTokens: number;
   lastMcrMeta: MCRMetadata | null;
   lastEnergy: EnergyData | null;
+  // tools#44 post-drop stale-window invariant bookkeeping. From the previous
+  // drop-applying request: a cheap signature of the outgoing window
+  // (length + last-message identity), the local history length at that
+  // request, and how many CONSECUTIVE requests have tripped the
+  // frozen-while-growing condition. See the invariant block in the
+  // ``context`` handler.
+  prevWindowSig: string | null;
+  prevLocalLen: number;
+  staleWindowRepeats: number;
   // #4111: pi's in-session ``SessionManager.branch()`` (`session-manager.js:913`)
   // reassigns the leaf pointer within the same session file but does NOT
   // change the session id. Without this field we'd send the gateway the
@@ -157,6 +243,9 @@ const state: SessionState = {
   contextTokens: 0,
   lastMcrMeta: null,
   lastEnergy: null,
+  prevWindowSig: null,
+  prevLocalLen: 0,
+  staleWindowRepeats: 0,
   activeBranchLeafId: null,
   inFlightSince: null,
   inFlightTickerHandle: null,
@@ -407,6 +496,53 @@ function resolveConversationId(
   return { id: getUuidFallback(), source: "uuid-fallback" };
 }
 
+// ── Post-drop stale-window invariant (tools#44) ─────────────────────────────
+// After the extension honors a server context-drop, the outgoing window must
+// KEEP ADVANCING as new local turns land. The 2026-06-09 forensics show the
+// opposite: the outbound window froze at a 114-message snapshot for 35-40
+// minute stretches while 575+ new local turns piled up unsent (a fresh 25KB
+// tool result recorded locally was absent from the request sent 42ms later),
+// and the server-side breaker fired ~24k times into the stale window with
+// zero effect. The freeze is not reproduced under a debugger, so this is a
+// HARDENING invariant: detect the failure class at request time and self-heal
+// loudly, rather than point-fix a mechanism we can't observe.
+//
+// Trigger (two-sided, false-positive-safe): the outgoing-window signature is
+// IDENTICAL to the previous request's WHILE the local history has GROWN since
+// that request. A pure retry (identical window, no new local turns) does not
+// trigger; a healthy window advances its tail every turn and never matches.
+// After STALE_WINDOW_HEAL_REPEATS consecutive triggers, reset the drop
+// bookkeeping and send the FULL local history — the server re-establishes
+// stored_through from it. Healing resets the tracking state, so a re-heal
+// needs a fresh freeze (no heal loop). Zero wire-format changes otherwise.
+const STALE_WINDOW_HEAL_REPEATS = 2;
+
+// Cheap identity signature of an outgoing message window: window length plus
+// role and content length of the LAST message. Deliberately not a full hash —
+// the invariant only needs "did the window visibly advance?", and a healthy
+// post-drop window keeps its newest local message at the tail, so any new
+// turn flips the signature.
+function windowSignature(msgs: Array<unknown>): string {
+  if (msgs.length === 0) return "0";
+  const last = msgs[msgs.length - 1] as {
+    role?: unknown;
+    type?: unknown;
+    content?: unknown;
+  };
+  const role = String(last?.role ?? last?.type ?? "?");
+  let contentLen = -1;
+  try {
+    const content = last?.content;
+    contentLen =
+      typeof content === "string"
+        ? content.length
+        : JSON.stringify(content ?? null).length;
+  } catch {
+    // unserializable content — keep -1; still a stable marker for "same shape"
+  }
+  return `${msgs.length}:${role}:${contentLen}`;
+}
+
 function computeDropRange(
   entries: Array<{ role?: string; type?: string }>,
   safeDropBefore: number,
@@ -421,6 +557,29 @@ function computeDropRange(
 }
 
 export default function (pi: ExtensionAPI) {
+  // ── Dual-instance guard (tools#44): first activation wins ──
+  // Claim the process-global sentinel BEFORE registering anything (provider,
+  // handlers, env seeds). If another copy of this extension already activated
+  // in this process — pi auto-loads ~/.pi/agent/extensions/neuralwatt-mcr.ts
+  // in addition to any `-e <path>` copy — register NOTHING: a second
+  // drop-protocol state machine racing the first on the same session is the
+  // proven mechanism behind the 2026-06-09 runaway. Log loudly to both the
+  // extension log (greppable forensics) and stderr (visible interactively).
+  const activeInstance = claimDualInstanceSentinel();
+  if (activeInstance) {
+    const loser = { version: EXTENSION_VERSION, module: moduleHint() };
+    nwlog("dual_instance_blocked", { winner: activeInstance, loser });
+    console.error(
+      `[neuralwatt-mcr] DUAL INSTANCE BLOCKED: extension v${loser.version} ` +
+        `(${loser.module}) did NOT register — v${activeInstance.version} ` +
+        `(${activeInstance.module}) is already active in this process. ` +
+        `Pi auto-loads ~/.pi/agent/extensions/neuralwatt-mcr.ts in addition ` +
+        `to any -e <path> copy; remove the duplicate so only one copy loads ` +
+        `(see neuralwatt-tools#44).`,
+    );
+    return;
+  }
+
   const MCR_STATUS_KEY = "nw-mcr";
   const ENERGY_STATUS_KEY = "nw-energy";
 
@@ -650,6 +809,9 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
+    state.prevWindowSig = null;
+    state.prevLocalLen = 0;
+    state.staleWindowRepeats = 0;
     state.inFlightSince = null;
     if (state.inFlightTickerHandle !== null) {
       clearInterval(state.inFlightTickerHandle);
@@ -862,6 +1024,57 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    // ── Post-drop stale-window invariant (tools#44) ──
+    // The window we are about to send must keep advancing as new local turns
+    // land. Two-sided trigger: signature identical to the PREVIOUS request's
+    // outgoing window WHILE the local history has grown since that request.
+    // A pure retry (no local growth) resets the streak; a healthy window's
+    // tail carries the newest local message, so growth flips the signature.
+    const windowSig = windowSignature(filtered);
+    const localLen = event.messages.length;
+    const frozenWhileGrowing =
+      state.prevWindowSig !== null &&
+      windowSig === state.prevWindowSig &&
+      localLen > state.prevLocalLen;
+    state.staleWindowRepeats = frozenWhileGrowing
+      ? state.staleWindowRepeats + 1
+      : 0;
+
+    if (state.staleWindowRepeats >= STALE_WINDOW_HEAL_REPEATS) {
+      // SELF-HEAL: the outgoing window is provably stale (frozen for
+      // STALE_WINDOW_HEAL_REPEATS consecutive requests while local history
+      // grew). Reset the drop bookkeeping and send the FULL local history on
+      // this request — the server re-establishes stored_through /
+      // safe_drop_before from it via the normal response headers. Tracking
+      // state resets too, so the next heal needs a fresh freeze (no loop).
+      nwlog("stale_window_self_heal", {
+        repeats: state.staleWindowRepeats,
+        window_len: filtered.length,
+        local_len: localLen,
+        safe_drop_before: state.safeDropBefore,
+        session_fp: state.sessionFp,
+      });
+      console.error(
+        `[neuralwatt-mcr] STALE WINDOW SELF-HEAL: outgoing window frozen at ` +
+          `${filtered.length} msgs across ${state.staleWindowRepeats} ` +
+          `consecutive requests while local history grew to ${localLen} — ` +
+          `resetting drop bookkeeping and sending the full history so the ` +
+          `server re-establishes stored_through (neuralwatt-tools#44).`,
+      );
+      state.safeDropBefore = 0;
+      state.storedThrough = 0;
+      state.lastMcrMeta = null;
+      state.prevWindowSig = null;
+      state.prevLocalLen = 0;
+      state.staleWindowRepeats = 0;
+      updateStatusBar(ctx);
+      // No message mutation — the full local history goes out on this request.
+      return;
+    }
+
+    state.prevWindowSig = windowSig;
+    state.prevLocalLen = localLen;
+
     nwlog("context_drop", {
       drop_start: dropStart,
       drop_end: clampedEnd,
@@ -991,6 +1204,9 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
+    state.prevWindowSig = null;
+    state.prevLocalLen = 0;
+    state.staleWindowRepeats = 0;
 
     // #4111: pin the active branch's leaf id so the wire-side
     // X-NW-Conversation-ID becomes ``${sessionId}:${newLeafId}`` for this
