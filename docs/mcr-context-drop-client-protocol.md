@@ -9,7 +9,7 @@
 > - **Session identity is now carried by a client-generated `X-NW-Conversation-ID` request header.** The 1.x guidance to *echo the server's `X-MCR-Session-FP` back on requests* was never read by the server and is removed. See [Session identity](#session-identity).
 > - **The Tier-3 inline content tag (`[[NW-MCR-PROTO-V1:…]]`) and its `X-NW-MCR-Inline-Signals` opt-in have been removed.** There is no inline-tag channel anymore. Read the response **headers** instead — they are now emitted on every endpoint and in streaming mode (this was the gap that broke SDK-based streaming clients; it is fixed). See [Channels](#protocol-channels).
 > - **New stream frames you must tolerate:** `event: mcr-status` heartbeats during in-flight compaction. Ignore SSE events/fields you don't recognize.
-> - **New server-resolved tool:** the model may emit a `mcr_lookup` tool call. The **server** resolves it — your client must not reject or try to execute it. See [The `mcr_lookup` tool](#the-mcr_lookup-tool).
+> - **New server-resolved tool:** the model may emit a `mcr_lookup` tool call. The **server** resolves it — your client must not reject it or try to resolve it itself, but it MAY register a local placeholder stub (the placeholder tool_result is replaced server-side on the next request — *cross-turn injection*). See [The `mcr_lookup` tool](#the-mcr_lookup-tool).
 > - Updated model list and informational headers.
 > - Clarified that **client-side auto-compaction must be disabled** — a client that compacts at a percentage of the advertised context window will undercut MCR. See [the fallback](#fallback-zero-integration).
 
@@ -190,12 +190,16 @@ Means *don't drop anything*. It's the normal state for short sessions: MCR compa
 
 ## The `mcr_lookup` tool
 
-On MCR models the server may register and use an internal tool named **`mcr_lookup`**. When the model needs content that MCR compacted away, it calls `mcr_lookup` and **the server intercepts and resolves the call itself** — the resolved content is folded back into the conversation server-side.
+On MCR models the server may register and use an internal tool named **`mcr_lookup`**. When the model needs content that MCR compacted away, it calls `mcr_lookup` and **the server resolves the call** — the recalled content is folded back into the conversation server-side.
 
-**What your client must do:** nothing, except *not get in the way*:
+On mixed agentic turns the tool call is forwarded to your client **verbatim, by design**: the server resolves the hash itself, caches the content, and on your **next** request replaces whatever tool_result your client supplied for that call with the real recalled content (*cross-turn injection*). So the tool_result your client produces for `mcr_lookup` is only ever a throwaway placeholder.
+
+**What your client must do:**
 
 - **Do not reject or error on a tool named `mcr_lookup`.** If your client validates/filters the tool list, allow it through.
-- **Do not try to execute `mcr_lookup` yourself.** It has no client-side implementation; the server handles it. If your agent loop blindly executes every tool call, you'll produce a `Tool mcr_lookup not found` result and stall the model. Either let the server resolve it (the default) or pass the tool call through untouched.
+- **Do not try to RESOLVE `mcr_lookup` yourself.** Resolution (turning the `hash` into content) is exclusively the server's job — a client has no access to the compacted store and must never fabricate or fetch recalled content.
+- Your client **MAY register a local placeholder stub** for `mcr_lookup` so its agent loop doesn't error with `Tool mcr_lookup not found`. The stub must take a single required string param `hash` (tolerate extra params), ignore it, and immediately return a short, neutral placeholder — e.g. `[recall delegated to server — content is injected by the gateway on the next turn]`. The server replaces the placeholder with the real content via cross-turn injection on the next request. Keep the text stable and clearly not-real-content: it can transiently reach the model if injection misses a turn. (The Neuralwatt pi extension does exactly this from v2.5.0.)
+- If you don't register a stub, your loop's `Tool mcr_lookup not found` error result is also repaired server-side on the next turn — it just looks alarming in your transcript.
 - **Preserve `tool_call_id`s verbatim** across the round-trip. The server matches the tool call to its resolution by id; if your client regenerates or normalizes ids, server-side resolution can miss.
 
 If you don't manage tools at all (you just forward the server's response), there is nothing to do.
@@ -269,4 +273,4 @@ A: **Yes — this is the single most important thing.** If your client auto-comp
 A: Both, for different purposes. `/v1/models` advertises the large **virtual** window (so your client doesn't auto-compact early); MCR compacts against the smaller **backend** limit server-side. You manage neither — send history (or drop per the headers) and MCR handles the backend limit for you.
 
 **Q: My agent executes tool calls in a loop and I got `Tool mcr_lookup not found`.**
-A: That's the model calling the server-side `mcr_lookup` tool and your loop trying to run it locally. Don't — let the server resolve it, allow the tool name through your filter, and preserve `tool_call_id`s. See [The `mcr_lookup` tool](#the-mcr_lookup-tool).
+A: That's the model calling the server-side `mcr_lookup` tool and your loop trying to run it locally. The error is cosmetic — the server replaces your tool_result (error or not) with the real recalled content on the next request via cross-turn injection. To clean up your transcript, register a placeholder stub for `mcr_lookup` (never resolve the hash yourself), allow the tool name through your filter, and preserve `tool_call_id`s. See [The `mcr_lookup` tool](#the-mcr_lookup-tool).
