@@ -24,16 +24,20 @@ type Handler = (event: any, ctx: any) => any;
 interface MockPi {
   handlers: Map<string, Handler>;
   providers: Record<string, any>;
+  tools: Record<string, any>;
   on: (event: string, handler: Handler) => void;
   registerProvider: (name: string, config: any) => void;
+  registerTool: (tool: any) => void;
 }
 
 function makeMockPi(): MockPi {
   const handlers = new Map<string, Handler>();
   const providers: Record<string, any> = {};
+  const tools: Record<string, any> = {};
   return {
     handlers,
     providers,
+    tools,
     on(event, handler) {
       // The extension registers some events more than once across refactors;
       // last-registration-wins mirrors how Pi's runner would dispatch the
@@ -42,6 +46,9 @@ function makeMockPi(): MockPi {
     },
     registerProvider(name, config) {
       providers[name] = config;
+    },
+    registerTool(tool) {
+      tools[tool.name] = tool;
     },
   };
 }
@@ -397,13 +404,13 @@ describe("#44 dual-instance guard", () => {
     const sentinel = (globalThis as Record<string, unknown>)
       .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
     expect(sentinel).toBeTruthy();
-    expect(sentinel.version).toBe("2.4.0");
+    expect(sentinel.version).toBe("2.5.0");
     expect(typeof sentinel.module).toBe("string");
     expect(typeof sentinel.ts).toBe("string");
 
     // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
     // bump, so prod can verify the rollout.
-    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.4.0");
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.0");
   });
 
   it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
@@ -417,9 +424,10 @@ describe("#44 dual-instance guard", () => {
       expect(pi1.handlers.size).toBeGreaterThan(0);
 
       ext(pi2);
-      // No HTTP hooks, no handlers, no provider — nothing at all.
+      // No HTTP hooks, no handlers, no provider, no tools — nothing at all.
       expect(Object.keys(pi2.providers)).toHaveLength(0);
       expect(pi2.handlers.size).toBe(0);
+      expect(Object.keys(pi2.tools)).toHaveLength(0);
 
       // Loud in the extension log…
       const blockedLine = readLog()
@@ -427,8 +435,8 @@ describe("#44 dual-instance guard", () => {
         .find((l) => l.includes("dual_instance_blocked"));
       expect(blockedLine).toBeTruthy();
       const blocked = JSON.parse(blockedLine!);
-      expect(blocked.winner.version).toBe("2.4.0");
-      expect(blocked.loser.version).toBe("2.4.0");
+      expect(blocked.winner.version).toBe("2.5.0");
+      expect(blocked.loser.version).toBe("2.5.0");
 
       // …and on stderr (visible interactively).
       expect(errSpy).toHaveBeenCalled();
@@ -635,5 +643,67 @@ describe("#44 post-drop stale-window self-heal", () => {
     const r4 = await context({ messages: mkMsgs(13) }, ctx);
     expect(r4.messages).toHaveLength(8);
     expect(readLog()).not.toContain("stale_window_self_heal");
+  });
+});
+
+describe("mcr_lookup placeholder stub (inference_frontend#4039)", () => {
+  // On mixed agentic turns the gateway forwards the model's server-side
+  // `mcr_lookup` tool call to the client by design; the gateway replaces the
+  // client's placeholder tool_result with the real content on the NEXT
+  // request (cross-turn injection). The stub exists only so pi stops
+  // rendering "Tool mcr_lookup not found" — it must return a stable
+  // placeholder and must NEVER resolve the hash itself (client protocol
+  // forbids client-side resolution).
+  const PLACEHOLDER =
+    "[recall delegated to server — content is injected by the gateway on the next turn]";
+
+  it("registers an mcr_lookup tool with a required string `hash` param", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    const tool = pi.tools["mcr_lookup"];
+    expect(tool).toBeTruthy();
+    expect(tool.label).toBe("MCR server-side recall");
+    // Single required string param named `hash`, matching the gateway's tool
+    // definition so the forwarded call passes client-side validation.
+    expect(tool.parameters.required).toEqual(["hash"]);
+    expect(tool.parameters.properties.hash.type).toBe("string");
+    // Extra params from a future gateway revision must NOT fail validation.
+    expect(tool.parameters.additionalProperties).not.toBe(false);
+  });
+
+  it("execute returns the neutral placeholder and does not resolve the hash", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    const tool = pi.tools["mcr_lookup"];
+    const result = await tool.execute("call_1", { hash: "abc123def456" });
+
+    // PLACEHOLDER ONLY — the gateway overwrites it via cross-turn injection.
+    expect(result.content).toEqual([{ type: "text", text: PLACEHOLDER }]);
+    expect(result.details).toEqual({ hash: "abc123def456", placeholder: true });
+
+    // Observable in the extension log for forensics.
+    const line = readLog()
+      .split("\n")
+      .find((l) => l.includes("mcr_lookup_stub"));
+    expect(line).toBeTruthy();
+    expect(JSON.parse(line!).hash_prefix).toBe("abc123def456".slice(0, 12));
+  });
+
+  it("prepareArguments coerces a missing/non-string hash and drops extra params", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    const tool = pi.tools["mcr_lookup"];
+    // Extra params are ignored, hash passes through.
+    expect(tool.prepareArguments({ hash: "h1", surprise: 42 })).toEqual({
+      hash: "h1",
+    });
+    // Defensive coercions — never let client-side validation reject a call
+    // the gateway will resolve anyway.
+    expect(tool.prepareArguments({})).toEqual({ hash: "" });
+    expect(tool.prepareArguments(undefined)).toEqual({ hash: "" });
+    expect(tool.prepareArguments({ hash: 123 })).toEqual({ hash: "123" });
   });
 });

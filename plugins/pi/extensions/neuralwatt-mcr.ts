@@ -1,4 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+// `typebox` is aliased by pi's extension loader (jiti) to the bundled copy at
+// runtime, so this single-file extension stays dependency-free when installed
+// via `pi install npm:@neuralwatt/pi-mcr-extension`. For `vitest` it resolves
+// from this package's devDependencies.
+import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -45,7 +50,20 @@ import { randomUUID } from "node:crypto";
 //           reset the drop bookkeeping and send the FULL history
 //           (``stale_window_self_heal``) so the server re-establishes
 //           stored_through. No wire-format changes otherwise.
-const EXTENSION_VERSION = "2.4.0";
+//   2.5.0 — register a local `mcr_lookup` placeholder stub
+//           (inference_frontend#4039). On mixed agentic turns the gateway
+//           forwards the model's server-side `mcr_lookup` tool call to the
+//           client by design (the gateway resolves the hash itself and
+//           replaces the client's placeholder tool_result with the real
+//           content on the NEXT request — cross-turn injection). Pi had no
+//           such tool registered, so it errored locally and rendered
+//           "Tool mcr_lookup not found" in the transcript — alarming but
+//           benign (prod gateway logs show every placeholder replaced and
+//           the model consuming the recalled content). The stub returns a
+//           short neutral placeholder and never resolves the hash; this is
+//           purely cosmetic — the gateway repairs the conversation either
+//           way.
+const EXTENSION_VERSION = "2.5.0";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -543,6 +561,40 @@ function windowSignature(msgs: Array<unknown>): string {
   return `${msgs.length}:${role}:${contentLen}`;
 }
 
+// ── mcr_lookup placeholder stub (inference_frontend#4039) ───────────────────
+// On MCR (`-long`) aliases the gateway advertises a server-side recall tool
+// named `mcr_lookup`. On mixed agentic turns the model's `mcr_lookup`
+// tool_call is forwarded to the client verbatim BY DESIGN: the gateway
+// resolves the hash server-side, caches the content, and on the NEXT request
+// replaces the client's placeholder tool_result with the real recalled
+// content ("cross-turn injection", inference_frontend#4039). Pi has no such
+// tool, so without this stub it errors locally and renders
+// "Tool mcr_lookup not found" in the transcript — alarming but benign.
+//
+// The stub must NEVER try to resolve the hash itself: the public client
+// protocol spec (neuralwatt-tools docs, mcr-context-drop-client-protocol)
+// forbids client-side resolution — recall is the gateway's job. It returns
+// this PLACEHOLDER, which the gateway overwrites via cross-turn injection on
+// the next request. Keep the text short and stable: it may transiently reach
+// the model if injection misses a turn, so it must not look like real
+// recalled content and should hint that the content arrives next turn.
+const MCR_LOOKUP_PLACEHOLDER =
+  "[recall delegated to server — content is injected by the gateway on the next turn]";
+
+const MCR_LOOKUP_PARAMS = Type.Object(
+  {
+    // Single required param, matching the gateway's tool definition so the
+    // forwarded call passes client-side validation.
+    hash: Type.String({
+      description:
+        "Content hash of the compacted range to recall (resolved by the gateway, not the client).",
+    }),
+  },
+  // Defensive: the gateway owns this tool's schema. Tolerate any extra
+  // params a future gateway revision may add instead of failing validation.
+  { additionalProperties: true },
+);
+
 function computeDropRange(
   entries: Array<{ role?: string; type?: string }>,
   safeDropBefore: number,
@@ -638,6 +690,43 @@ export default function (pi: ExtensionAPI) {
       "X-NW-MCR-Ext-Version": EXT_VERSION_ENV,
     },
     models: NEURALWATT_MODELS.map((m) => ({ ...m, compat: NEURALWATT_COMPAT })),
+  });
+
+  // ── mcr_lookup placeholder stub (inference_frontend#4039) ──
+  // See the MCR_LOOKUP_PLACEHOLDER block above for the full design note.
+  // Registering the tool keeps pi's tool loop from erroring with
+  // "Tool mcr_lookup not found" when the gateway forwards the model's
+  // server-side recall call; the placeholder result is replaced by the
+  // gateway on the next request (cross-turn injection). This stub must not —
+  // and does not — attempt to resolve the hash.
+  pi.registerTool({
+    name: "mcr_lookup",
+    label: "MCR server-side recall",
+    description:
+      "Server-side recall of MCR-compacted conversation content. The Neuralwatt " +
+      "gateway resolves this tool itself; this local stub only returns a " +
+      "placeholder that the gateway replaces on the next turn. Only meaningful " +
+      "on Neuralwatt MCR (-long) models — never call it directly.",
+    parameters: MCR_LOOKUP_PARAMS,
+    // Defensive shim: never let client-side schema validation reject a call
+    // the gateway will resolve anyway. Coerce `hash` to a string and ignore
+    // any extra params.
+    prepareArguments(args: unknown) {
+      const raw = (args ?? {}) as Record<string, unknown>;
+      return {
+        hash: typeof raw.hash === "string" ? raw.hash : String(raw.hash ?? ""),
+      };
+    },
+    async execute(_toolCallId, params) {
+      nwlog("mcr_lookup_stub", {
+        hash_prefix: String(params.hash).slice(0, 12),
+      });
+      return {
+        // PLACEHOLDER ONLY — overwritten server-side via cross-turn injection.
+        content: [{ type: "text", text: MCR_LOOKUP_PLACEHOLDER }],
+        details: { hash: params.hash, placeholder: true },
+      };
+    },
   });
 
   function updateStatusBar(ctx: ExtensionContext) {

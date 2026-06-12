@@ -177,7 +177,7 @@ After:  [anchor1, anchor2, anchor3, recent_36, ..., recent_85]
 2. The MCR pipeline compacts old context server-side.
 3. Response headers include `X-MCR-Safe-Drop-Before: 35`.
 4. On the next `context` event (before the next LLM call), the extension drops messages 4–35.
-5. If the model needs anything from a dropped range, it can call the `mcr_lookup` tool and the server retrieves it from its store.
+5. If the model needs anything from a dropped range, it can call the `mcr_lookup` tool and the server retrieves it from its store. On mixed agentic turns the gateway forwards that tool call to the client by design, so the extension (2.5.0) registers a local `mcr_lookup` stub that returns a short placeholder — the gateway replaces it with the real recalled content on the next request ("cross-turn injection", inference_frontend#4039). The stub never resolves anything itself; without it, pi rendered a harmless-but-alarming "Tool mcr_lookup not found" error in the transcript.
 
 ## MCR vs non-MCR models
 
