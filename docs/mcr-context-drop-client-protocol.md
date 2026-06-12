@@ -186,6 +186,25 @@ Applying the same `safe_drop_before` twice is safe — the second time the range
 
 Means *don't drop anything*. It's the normal state for short sessions: MCR compacts lazily and only starts advising drops once the conversation approaches the backend model's context limit. Below that threshold you'll see `0` every turn — keep full history; this is expected.
 
+### After honoring a drop: the window MUST keep advancing (stale-window invariant)
+
+Honoring a drop changes *what you remove from the head* of your outbound array — it must never change the rule that **every request reflects your current conversation tail**. Each request's message window must include every local turn recorded since the previous request.
+
+This sounds too obvious to state. It isn't: our own reference extension shipped a bug (versions 2.1.x–2.3.x) where, after a drop was honored, the outbound window silently froze at a fixed snapshot while new local turns piled up unsent — in one forensic case a 114-message window was re-sent unchanged for 35–40 minutes while 575+ new local turns accumulated. The failure mode is vicious precisely because the conversation *looks* alive: the server keeps responding to the same stale window, its anti-re-read countermeasures fire thousands of times with zero effect (the model's new turns never arrive), and the session degrades into a runaway loop. Fixed in 2.4.0 (`tools#44`).
+
+**Required:** after honoring a drop, your outbound window must still end at your newest local message on every request.
+
+**Recommended (self-heal, as implemented in reference extension 2.4.0):** detect the failure class at request time with a two-sided check that is false-positive-safe —
+
+1. compute a cheap signature of the outgoing window (e.g. window length + role and content-length of the **last** message — a healthy window changes this every turn);
+2. trigger when the signature is **identical to the previous request's** *while* your local history has **grown** since that request. (A pure retry — identical window, no new local turns — does not trigger.)
+
+After **2 consecutive** triggers, assume the window is frozen: reset your drop bookkeeping and send the **full local history**; the server re-establishes `stored_through`/`safe_drop_before` from it on the next response, and normal dropping resumes. Reset the detector state after healing so a re-heal requires a fresh freeze (no heal loops). No wire-format changes are involved.
+
+**Server backstop:** the gateway independently detects stale windows (the `stale_window_repeats` telemetry you may see referenced in support conversations) and can fall back to content-preserving behavior — but the backstop cannot recover your unsent turns. Client correctness is primary.
+
+**Send `X-NW-MCR-Ext-Version`** (see Request headers above) with your own version string on every request. It is telemetry-only, but it is the difference between operators diagnosing a frozen-window report in minutes ("client X version Y") versus reconstructing your client's behavior from session forensics. If you maintain a third-party implementation synced to this protocol, send your own product/version — not ours.
+
 ---
 
 ## The `mcr_lookup` tool
