@@ -404,13 +404,17 @@ describe("#44 dual-instance guard", () => {
     const sentinel = (globalThis as Record<string, unknown>)
       .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
     expect(sentinel).toBeTruthy();
-    expect(sentinel.version).toBe("2.5.0");
+    expect(sentinel.version).toBe("2.5.1");
     expect(typeof sentinel.module).toBe("string");
     expect(typeof sentinel.ts).toBe("string");
+    // 2.5.1: the claim carries an activation id (ownership for touch/release)
+    // and a heartbeat (staleness detection).
+    expect(typeof sentinel.activationId).toBe("string");
+    expect(typeof sentinel.heartbeatTs).toBe("number");
 
     // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
     // bump, so prod can verify the rollout.
-    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.0");
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.1");
   });
 
   it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
@@ -435,8 +439,8 @@ describe("#44 dual-instance guard", () => {
         .find((l) => l.includes("dual_instance_blocked"));
       expect(blockedLine).toBeTruthy();
       const blocked = JSON.parse(blockedLine!);
-      expect(blocked.winner.version).toBe("2.5.0");
-      expect(blocked.loser.version).toBe("2.5.0");
+      expect(blocked.winner.version).toBe("2.5.1");
+      expect(blocked.loser.version).toBe("2.5.1");
 
       // …and on stderr (visible interactively).
       expect(errSpy).toHaveBeenCalled();
@@ -466,6 +470,179 @@ describe("#44 dual-instance guard", () => {
     expect(pi.providers["neuralwatt"]).toBeTruthy();
     expect(pi.handlers.size).toBeGreaterThan(0);
     expect(readLog()).toContain("dual_instance_guard_anomaly");
+  });
+});
+
+describe("2.5.1 dual-instance guard: stale-sentinel release (Nico false positive)", () => {
+  // Pi re-runs every extension factory IN-PROCESS on /new, /resume, fork and
+  // /reload (AgentSessionRuntime.teardownCurrent / AgentSession.reload →
+  // resourceLoader.reload() → loadExtensions; jiti moduleCache:false). The
+  // 2.5.0 sentinel was never cleared, so every such re-activation was blocked
+  // as a "dual instance" while pi had already discarded the prior
+  // activation's handlers — leaving ZERO registered copies (MCR + provider
+  // silently off). The fix releases the claim on session_shutdown and, as a
+  // backup, lets a claimant steal a sentinel whose heartbeat has gone stale.
+
+  function sentinel(): Record<string, unknown> {
+    return (globalThis as Record<string, unknown>)
+      .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
+  }
+
+  it("session_shutdown releases the claim so the next activation registers (pi /new, /resume, fork, /reload)", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    ext(pi1);
+    expect(sentinel()).toBeTruthy();
+
+    // Pi emits session_shutdown to the old runner before every teardown
+    // that precedes an in-process re-load.
+    await pi1.handlers.get("session_shutdown")!(
+      { reason: "new" },
+      makeCtx("neuralwatt/glm-5.1-long"),
+    );
+    expect(sentinel()).toBeUndefined();
+
+    // The re-activation (fresh load pass) must register everything.
+    const pi2 = makeMockPi();
+    ext(pi2);
+    expect(pi2.providers["neuralwatt"]).toBeTruthy();
+    expect(pi2.handlers.size).toBeGreaterThan(0);
+    expect(readLog()).not.toContain("dual_instance_blocked");
+  });
+
+  it("a claimant steals a sentinel whose heartbeat went stale and logs dual_instance_steal_stale", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    ext(pi1);
+    const firstActivationId = sentinel().activationId;
+
+    // Simulate a prior activation pi tore down WITHOUT emitting
+    // session_shutdown (e.g. SDK hosts calling resourceLoader.reload()
+    // directly): the claim is still there but its heartbeat has gone stale.
+    sentinel().heartbeatTs = Date.now() - 31_000;
+
+    const pi2 = makeMockPi();
+    ext(pi2);
+    // The new activation registered normally…
+    expect(pi2.providers["neuralwatt"]).toBeTruthy();
+    expect(pi2.handlers.size).toBeGreaterThan(0);
+    // …took over the claim under a new activation id with a fresh heartbeat…
+    expect(sentinel().activationId).not.toBe(firstActivationId);
+    expect(Date.now() - (sentinel().heartbeatTs as number)).toBeLessThan(
+      1_000,
+    );
+    // …and the steal is logged distinctly (NOT as a block).
+    const stealLine = readLog()
+      .split("\n")
+      .find((l) => l.includes("dual_instance_steal_stale"));
+    expect(stealLine).toBeTruthy();
+    const steal = JSON.parse(stealLine!);
+    expect(steal.prior.heartbeat_age_ms).toBeGreaterThan(30_000);
+    expect(steal.claimant.version).toBe("2.5.1");
+    expect(readLog()).not.toContain("dual_instance_blocked");
+  });
+
+  it("a FRESH heartbeat still blocks — true dual-load (auto-load + -e) stays dead", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    const pi2 = makeMockPi();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      ext(pi1);
+      // Two copies in one load pass activate within milliseconds — the
+      // second always sees a fresh heartbeat and must register NOTHING.
+      ext(pi2);
+      expect(Object.keys(pi2.providers)).toHaveLength(0);
+      expect(pi2.handlers.size).toBe(0);
+      expect(readLog()).toContain("dual_instance_blocked");
+      expect(readLog()).not.toContain("dual_instance_steal_stale");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("the winner's heartbeat refreshes on every event it handles", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+
+    // Age the heartbeat, then drive a handled event (any model — the touch
+    // happens before the isMCRModel guard). The heartbeat must come back
+    // fresh, so an ACTIVE copy can never be mistaken for a stale one.
+    sentinel().heartbeatTs = 1;
+    await pi.handlers.get("context")!(
+      { messages: [{ type: "user" }] },
+      makeCtx("deepseek-v4-pro"),
+    );
+    expect(Date.now() - (sentinel().heartbeatTs as number)).toBeLessThan(
+      1_000,
+    );
+
+    // before_provider_request — the per-request hook — touches too.
+    sentinel().heartbeatTs = 1;
+    await pi.handlers.get("before_provider_request")!(
+      { payload: {} },
+      makeCtx("deepseek-v4-pro"),
+    );
+    expect(Date.now() - (sentinel().heartbeatTs as number)).toBeLessThan(
+      1_000,
+    );
+  });
+
+  it("a superseded activation's late session_shutdown cannot release the new holder's claim", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    ext(pi1);
+    sentinel().heartbeatTs = Date.now() - 31_000;
+    const pi2 = makeMockPi();
+    ext(pi2); // steals
+    const holderActivationId = sentinel().activationId;
+
+    // The old runner's shutdown fires late — ownership check must no-op.
+    await pi1.handlers.get("session_shutdown")!(
+      { reason: "new" },
+      makeCtx("neuralwatt/glm-5.1-long"),
+    );
+    expect(sentinel()).toBeTruthy();
+    expect(sentinel().activationId).toBe(holderActivationId);
+  });
+
+  it("a legacy (≤2.5.0) sentinel without a heartbeat is never stolen", async () => {
+    // A 2.5.0 winner never refreshes a heartbeat, so staleness cannot be
+    // distinguished from liveness — and a mixed-version install is exactly
+    // the tools#44 dual-load. Block, as before.
+    (globalThis as Record<string, unknown>).__NEURALWATT_MCR_ACTIVE__ = {
+      version: "2.5.0",
+      module: "file:///legacy/neuralwatt-mcr.ts",
+      ts: new Date(Date.now() - 3_600_000).toISOString(),
+    };
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pi = makeMockPi();
+      (await loadExtension())(pi);
+      expect(Object.keys(pi.providers)).toHaveLength(0);
+      expect(pi.handlers.size).toBe(0);
+      expect(readLog()).toContain("dual_instance_blocked");
+      expect(readLog()).not.toContain("dual_instance_steal_stale");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("the blocked-copy stderr message carries the false-positive guidance", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    const pi2 = makeMockPi();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      ext(pi1);
+      ext(pi2);
+      const msg = String(errSpy.mock.calls[0][0]);
+      expect(msg).toContain("DUAL INSTANCE BLOCKED");
+      expect(msg).toContain("If the paths are identical");
+      expect(msg).toContain("should self-resolve");
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
 

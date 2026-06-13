@@ -63,7 +63,26 @@ import { randomUUID } from "node:crypto";
 //           short neutral placeholder and never resolves the hash; this is
 //           purely cosmetic — the gateway repairs the conversation either
 //           way.
-const EXTENSION_VERSION = "2.5.0";
+//   2.5.1 — dual-instance guard: stop the permanent-lockout false positive
+//           (Nico, 2026-06-12). Pi re-runs every extension factory IN-PROCESS
+//           on /new, /resume, fork and /reload (AgentSessionRuntime
+//           teardownCurrent → createRuntime → resourceLoader.reload() →
+//           loadExtensions; jiti moduleCache:false re-evaluates the module
+//           but globalThis persists). The 2.4.0 sentinel was never cleared,
+//           so the re-activation was blocked as a "dual instance" while pi
+//           had already discarded the prior activation's handlers — leaving
+//           ZERO active copies (MCR + the whole neuralwatt provider silently
+//           gone) for the rest of the process. Fix: (a) the winner releases
+//           the sentinel in its session_shutdown handler — pi emits
+//           session_shutdown before every teardown path that precedes a
+//           re-load; (b) belt-and-braces heartbeat: the winner stamps the
+//           sentinel on every event it handles, and a claimant may STEAL a
+//           sentinel whose heartbeat is older than DUAL_INSTANCE_STALE_MS
+//           (logged as ``dual_instance_steal_stale``). True dual-load at
+//           startup still blocks — both copies activate within milliseconds,
+//           so the loser always sees a fresh heartbeat. tools#44 protection
+//           preserved; the lockout is gone.
+const EXTENSION_VERSION = "2.5.1";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -133,12 +152,50 @@ function nwlog(event: string, data: Record<string, unknown> = {}): void {
 // loaded from different paths each get their own module scope (exactly what
 // the dual-load evidence shows), so a module-scoped flag can never see the
 // other copy. globalThis is the only scope both copies share.
+//
+// 2.5.1 — the sentinel is no longer permanent. Pi re-runs every extension
+// factory IN-PROCESS on /new, /resume, fork and /reload (the old runner is
+// torn down and a fresh load pass re-evaluates this module; globalThis
+// survives the pass). A never-cleared sentinel therefore blocked every
+// re-activation after the first, with zero copies left registered. Two
+// complementary releases fix that without re-opening tools#44:
+//   (a) the winner deletes the sentinel in its session_shutdown handler —
+//       pi emits session_shutdown to the old runner before every teardown
+//       path that precedes a re-load;
+//   (b) the winner stamps sentinel.heartbeatTs on every event it handles,
+//       and a claimant may steal a sentinel whose heartbeat is older than
+//       DUAL_INSTANCE_STALE_MS (covers hosts that reload resources without
+//       emitting session_shutdown, e.g. the SDK's resourceLoader.reload()).
+// A genuine dual-load (auto-load + -e copy in ONE load pass) still blocks:
+// both copies activate within milliseconds, so the loser always sees a
+// fresh heartbeat.
 const DUAL_INSTANCE_SENTINEL_KEY = "__NEURALWATT_MCR_ACTIVE__";
+
+// A prior activation whose heartbeat is older than this is considered dead
+// (pi discarded its runner without the session_shutdown release firing) and
+// may be replaced. Copies racing within one load pass claim within
+// milliseconds, so 30s cannot misfire on a live dual-load.
+const DUAL_INSTANCE_STALE_MS = 30_000;
 
 interface DualInstanceSentinel {
   version: string;
   module: string;
   ts: string;
+  /** Unique id of the activation holding the claim (2.5.1+). */
+  activationId?: string;
+  /** Last time the holder handled an event, ms epoch (2.5.1+). */
+  heartbeatTs?: number;
+}
+
+// Unique per-ACTIVATION ownership token (never memoized — see the note at
+// the claim site in the default export). Defensive fallback mirrors the
+// guard's fail-open posture: id generation must never break activation.
+function newActivationId(): string {
+  try {
+    return randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
 }
 
 // Best-effort hint of which file this module copy was loaded from, so the
@@ -152,25 +209,55 @@ function moduleHint(): string {
 }
 
 // Claim the process-global activation sentinel. Returns the already-active
-// instance's sentinel when another copy won (caller must NOT register), or
-// null when this copy holds the claim and may register normally.
+// instance's sentinel when another LIVE copy won (caller must NOT register),
+// or null when this copy holds the claim — fresh, stolen-stale, or
+// fail-open — and may register normally.
+//
+// Staleness: a sentinel whose heartbeat is older than DUAL_INSTANCE_STALE_MS
+// belongs to an activation pi already discarded (see the release notes on
+// DUAL_INSTANCE_SENTINEL_KEY) — steal it and log `dual_instance_steal_stale`.
+// A sentinel WITHOUT a heartbeat (written by a ≤2.5.0 copy) is never stolen:
+// that copy never refreshes, so "stale" cannot be distinguished from "live",
+// and a mixed-version install is exactly the tools#44 dual-load we must keep
+// blocking.
 //
 // Resilience: a frozen/sealed globalThis (or any other exotic environment
 // where the read/write throws) must NEVER break activation — fail OPEN to
 // registering and log the anomaly. A doubly-registered extension is the
 // known-bad state we already survived; a never-registered one is strictly
 // worse (no MCR at all).
-function claimDualInstanceSentinel(): DualInstanceSentinel | null {
+function claimDualInstanceSentinel(
+  activationId: string,
+): DualInstanceSentinel | null {
   try {
     const g = globalThis as unknown as Record<string, unknown>;
     const existing = g[DUAL_INSTANCE_SENTINEL_KEY];
     if (existing && typeof existing === "object") {
-      return existing as DualInstanceSentinel;
+      const prior = existing as DualInstanceSentinel;
+      const heartbeatAge =
+        typeof prior.heartbeatTs === "number"
+          ? Date.now() - prior.heartbeatTs
+          : null;
+      if (heartbeatAge === null || heartbeatAge <= DUAL_INSTANCE_STALE_MS) {
+        return prior;
+      }
+      nwlog("dual_instance_steal_stale", {
+        prior: {
+          version: prior.version,
+          module: prior.module,
+          ts: prior.ts,
+          heartbeat_age_ms: heartbeatAge,
+        },
+        claimant: { version: EXTENSION_VERSION, module: moduleHint() },
+      });
+      // fall through to claim
     }
     const sentinel: DualInstanceSentinel = {
       version: EXTENSION_VERSION,
       module: moduleHint(),
       ts: new Date().toISOString(),
+      activationId,
+      heartbeatTs: Date.now(),
     };
     g[DUAL_INSTANCE_SENTINEL_KEY] = sentinel;
     return null;
@@ -179,6 +266,41 @@ function claimDualInstanceSentinel(): DualInstanceSentinel | null {
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
+  }
+}
+
+// Refresh the heartbeat — called from every event handler the winner
+// registers. Ownership-checked so a late event on an already-torn-down
+// runner can never freshen (or resurrect) a claim it no longer holds.
+function touchDualInstanceSentinel(activationId: string): void {
+  try {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const sentinel = g[DUAL_INSTANCE_SENTINEL_KEY] as
+      | DualInstanceSentinel
+      | undefined;
+    if (sentinel && typeof sentinel === "object" && sentinel.activationId === activationId) {
+      sentinel.heartbeatTs = Date.now();
+    }
+  } catch {
+    // never break a handler on guard bookkeeping
+  }
+}
+
+// Release the claim on session_shutdown so the re-activation pi performs on
+// /new, /resume, fork and /reload registers cleanly. Ownership-checked: a
+// blocked copy (which never claimed) and a superseded activation must not
+// delete the current holder's sentinel.
+function releaseDualInstanceSentinel(activationId: string): void {
+  try {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const sentinel = g[DUAL_INSTANCE_SENTINEL_KEY] as
+      | DualInstanceSentinel
+      | undefined;
+    if (sentinel && typeof sentinel === "object" && sentinel.activationId === activationId) {
+      delete g[DUAL_INSTANCE_SENTINEL_KEY];
+    }
+  } catch {
+    // never break shutdown on guard bookkeeping
   }
 }
 
@@ -609,15 +731,23 @@ function computeDropRange(
 }
 
 export default function (pi: ExtensionAPI) {
-  // ── Dual-instance guard (tools#44): first activation wins ──
+  // ── Dual-instance guard (tools#44): first LIVE activation wins ──
   // Claim the process-global sentinel BEFORE registering anything (provider,
-  // handlers, env seeds). If another copy of this extension already activated
+  // handlers, env seeds). If another copy of this extension is already live
   // in this process — pi auto-loads ~/.pi/agent/extensions/neuralwatt-mcr.ts
   // in addition to any `-e <path>` copy — register NOTHING: a second
   // drop-protocol state machine racing the first on the same session is the
   // proven mechanism behind the 2026-06-09 runaway. Log loudly to both the
   // extension log (greppable forensics) and stderr (visible interactively).
-  const activeInstance = claimDualInstanceSentinel();
+  // A STALE claim (prior activation torn down without releasing) is stolen
+  // instead — see claimDualInstanceSentinel.
+  //
+  // NOT getUuidFallback(): that id is memoized per-process (by design, for
+  // the conversation-id boot seed), but the activation id must be unique PER
+  // ACTIVATION — it is the ownership token that lets touch/release tell the
+  // current claim holder from a superseded one in the same process.
+  const activationId = newActivationId();
+  const activeInstance = claimDualInstanceSentinel(activationId);
   if (activeInstance) {
     const loser = { version: EXTENSION_VERSION, module: moduleHint() };
     nwlog("dual_instance_blocked", { winner: activeInstance, loser });
@@ -625,8 +755,11 @@ export default function (pi: ExtensionAPI) {
       `[neuralwatt-mcr] DUAL INSTANCE BLOCKED: extension v${loser.version} ` +
         `(${loser.module}) did NOT register — v${activeInstance.version} ` +
         `(${activeInstance.module}) is already active in this process. ` +
-        `Pi auto-loads ~/.pi/agent/extensions/neuralwatt-mcr.ts in addition ` +
-        `to any -e <path> copy; remove the duplicate so only one copy loads ` +
+        `If the two paths differ, two copies are loading (pi auto-loads ` +
+        `~/.pi/agent/extensions/neuralwatt-mcr.ts in addition to any ` +
+        `-e <path> copy) — remove one. If the paths are identical or you ` +
+        `have no -e copy, this is likely a same-process re-activation and ` +
+        `should self-resolve from v2.5.1 — please report if it persists ` +
         `(see neuralwatt-tools#44).`,
     );
     return;
@@ -851,6 +984,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     // #4111: clear the active branch suffix at session boot so a fresh pi
     // invocation always starts with the bare session id on the wire. Branch
     // navigation later in the session (``session_tree``) re-pins this.
@@ -915,6 +1049,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("after_provider_response", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     const modelId = ctx.model?.id || "";
     if (!isMCRModel(modelId)) return;
 
@@ -989,12 +1124,14 @@ export default function (pi: ExtensionAPI) {
   // streaming update (text/thinking/toolcall deltas); we don't need to narrow
   // further since any of these prove the wait is over.
   pi.on("message_update", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     if (event.message.role !== "assistant") return;
     if (!isMCRModel(ctx.model?.id || "")) return;
     markStreamProducing(ctx);
   });
 
   pi.on("message_end", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     if (event.message.role !== "assistant") return;
     if (!isMCRModel(ctx.model?.id || "")) return;
 
@@ -1039,6 +1176,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("context", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     const modelId = ctx.model?.id || "";
     const numMsgs = event.messages.length;
 
@@ -1178,6 +1316,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_provider_request", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     if (!isMCRModel(ctx.model?.id || "")) return;
 
     const payload = event.payload as Record<string, unknown>;
@@ -1272,6 +1411,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (_event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     if (!isMCRModel(ctx.model?.id || "")) return;
     if (state.sessionFp) {
       nwlog("compaction_cancelled", { session_fp: state.sessionFp });
@@ -1280,6 +1420,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_tree", async (event, ctx) => {
+    touchDualInstanceSentinel(activationId);
     // Branch navigation invalidates MCR session state — sessionFp and
     // safeDropBefore are tied to a specific message sequence that no
     // longer matches the new branch. Clear everything and let the
@@ -1342,6 +1483,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    // Release the dual-instance claim FIRST (before anything below can
+    // throw): pi emits session_shutdown to this (old) runner before every
+    // teardown that precedes an in-process re-load (/new, /resume, fork,
+    // /reload — AgentSessionRuntime.teardownCurrent / AgentSession.reload),
+    // so the re-activation that follows must find the slot free.
+    releaseDualInstanceSentinel(activationId);
     nwlog("session_shutdown", {
       final_session_fp: state.sessionFp,
       total_energy_joules: state.totalEnergyJoules,
