@@ -13,7 +13,7 @@ When you select a Neuralwatt MCR model (e.g., `neuralwatt/kimi-k2.6-long`, `neur
 - **Context drop** — Reads `X-MCR-Safe-Drop-Before` from response headers and trims old messages the server has already stored, keeping the client bounded while the server maintains a 1M+ virtual context window.
 - **Session fingerprint** — Sends `X-MCR-Session-FP` on subsequent requests so the server can resume the same compacted session directly across turns and auto-compact boundaries.
 - **Compaction suppression** — Cancels Pi's built-in compaction when MCR is active (the server handles it).
-- **Anchor protection** — Preserves the first 3 user messages (MCR's fingerprint anchors) so sessions stay stable.
+- **Anchor protection** — In the content-anchor fallback (no conversation id on the wire), preserves the first 3 user messages, which the server fingerprints for session identity. When a conversation id IS sent (the normal case — this extension always wires `X-NW-Conversation-ID`), the server keys identity on the conversation id instead, so the anchor floor is unnecessary and the drop honors `safe_drop_before` directly. This lets single-prompt agentic sessions (1 user message + many tool turns) drop normally instead of resending the whole history every turn (2.5.2).
 - **Energy + MCR status bar** — Adds `nw-mcr` (session fingerprint + current drop threshold) and `nw-energy` (cumulative energy + APC cache hit rate + compaction ratio) to Pi's footer.
 - **Version reporting** — Sends the extension version on every request as the `X-NW-MCR-Ext-Version` header so the gateway can log which client revision served a request (handy when triaging a report — server logs previously had no way to tell a user's extension version).
 

@@ -82,7 +82,30 @@ import { randomUUID } from "node:crypto";
 //           startup still blocks — both copies activate within milliseconds,
 //           so the loser always sees a fresh heartbeat. tools#44 protection
 //           preserved; the lockout is gone.
-const EXTENSION_VERSION = "2.5.1";
+//   2.5.2 — honor `safe_drop_before` in single-prompt agentic sessions when a
+//           conversation id is in use (Tom 2026-06-11, prod session 2d876919).
+//           The content-anchor floor (preserve the first 3 user messages)
+//           refused to EVER drop when fewer than 3 user messages exist —
+//           `findAnchorFloor` returned -1 and `computeDropRange` returned an
+//           empty range. A codebase-audit-from-ONE-prompt session (1 user msg
+//           + hundreds of assistant/tool turns) hit that path every turn,
+//           emitting `context_no_drop reason=empty_range` forever while the
+//           server's `safe_drop_before` climbed (63→189) and num_msgs grew
+//           (114→172+). The client re-sent the full ever-growing history every
+//           turn, driving server compaction churn, APC collapse (~5%), and a
+//           runaway ($10.57 / 9.5M tokens / 16 min). Root cause: the 3-user-
+//           message floor exists ONLY to protect the server's content-anchor
+//           identity fallback (fingerprinting the first 3 user messages when
+//           NO conversation id is sent). This extension always sends a
+//           well-formed X-NW-Conversation-ID, so the server keys identity on
+//           the conv-id and the floor is unnecessary. Fix: in conv-id mode the
+//           floor no longer blocks dropping — dropStart becomes 0 and the
+//           reconstructible prefix [0, safe_drop_before) drops (the reserved
+//           recent tail at/after safe_drop_before is never touched). The
+//           content-anchor fallback path (no conv-id) keeps the 3-user-message
+//           protection exactly as before. New `context_drop reason=convid_no_anchor`
+//           telemetry confirms single-prompt sessions now drop.
+const EXTENSION_VERSION = "2.5.2";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -120,6 +143,14 @@ const NEURALWATT_MODELS = [
 ] as const;
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
+
+// Name of the env var that carries the conversation id onto the wire as the
+// `X-NW-Conversation-ID` header (see the header-wiring note in the export
+// default). Module-scoped so both the provider registration AND the
+// content-anchor decision in `computeDropRange` read the same single name.
+// The SDK resolves a header value as an env-var NAME live per request, so
+// whatever this points at is exactly what the server receives.
+const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
 
 const LOG_FILE = path.join(
   os.homedir(),
@@ -583,6 +614,25 @@ function isWellFormedConversationId(value: string): boolean {
   return true;
 }
 
+// True when a well-formed X-NW-Conversation-ID is currently being sent on the
+// wire (the live value of CONV_ID_ENV, which the SDK resolves into the header
+// per request). This extension ALWAYS wires the header — a per-process UUID
+// fallback is seeded at load and upgraded to pi's stable session id (and to a
+// per-branch id) — so in practice this is true for every MCR turn.
+//
+// It matters for the content-anchor floor (see `computeDropRange`): the
+// 3-user-message floor exists ONLY to protect the server's content-anchor
+// identity fallback, which fingerprints the first 3 user messages when NO
+// conversation id is sent. When a conv-id IS in use the server keys session
+// identity on the conv-id (mcr_v3_session.validate_client_conversation_id),
+// so those first 3 user messages carry no identity weight and the
+// authoritative `safe_drop_before` (clamped to stored_through, recent tail
+// reserved) is the only thing that gates dropping.
+function conversationIdActive(): boolean {
+  const id = process.env[CONV_ID_ENV];
+  return typeof id === "string" && isWellFormedConversationId(id);
+}
+
 // Per-process fallback id. Generated lazily so it stays stable across
 // auto-compact within one `pi` invocation, and differs across invocations.
 let uuidFallback: string | null = null;
@@ -717,14 +767,54 @@ const MCR_LOOKUP_PARAMS = Type.Object(
   { additionalProperties: true },
 );
 
+// Compute the full-array index range [dropStart, dropEnd) to drop, in the same
+// indexing space as the server's `safe_drop_before` (every message counted,
+// all roles). `dropEnd` is always `safeDropBefore`, so messages at/after it —
+// the recent tail the server explicitly reserved (safe_drop_before is clamped
+// to stored_through with keep-recent withheld) — are NEVER dropped.
+//
+// `convIdActive` decides where dropStart begins:
+//
+//   * convIdActive === false (content-anchor fallback): keep the existing
+//     3-user-message protection. The server has no conversation id and falls
+//     back to fingerprinting the first 3 user messages for session identity,
+//     so they must survive — dropStart = anchorIdx + 1, and if fewer than 3
+//     user messages exist (anchorIdx < 0) we drop NOTHING. This is the
+//     untouched legacy path.
+//
+//   * convIdActive === true (conv-id mode — the normal path for this
+//     extension): the server keys identity on X-NW-Conversation-ID, so the
+//     first 3 user messages carry no identity weight and the floor is
+//     unnecessary. dropStart starts at 0 so the full reconstructible prefix
+//     [0, safeDropBefore) can drop even in single-user-prompt agentic
+//     sessions (1 user msg + hundreds of assistant/tool turns), which used to
+//     hit anchorIdx === -1 and never drop — driving the unbounded-resend /
+//     APC-collapse runaway (Tom 2026-06-11, session 2d876919). When ≥3 user
+//     messages exist, dropStart is still 0 (a superset of the old
+//     anchorIdx+1), so behaviour only ever drops MORE of the already-safe
+//     prefix, never less — and never past safeDropBefore.
+//
+// Index-space correctness (the #bug-2026-05-16 over-drop fix) is preserved:
+// both bounds are full-array indices, and the dropEnd <= dropStart guard plus
+// the caller's clampedEnd keep us from ever touching the reserved tail.
 function computeDropRange(
   entries: Array<{ role?: string; type?: string }>,
   safeDropBefore: number,
+  convIdActive: boolean,
 ): [number, number] {
   if (safeDropBefore <= 0) return [0, 0];
-  const anchorIdx = findAnchorFloor(entries, MCR_ANCHOR_USER_MESSAGES);
-  if (anchorIdx < 0) return [0, 0];
-  const dropStart = anchorIdx + 1;
+  let dropStart: number;
+  if (convIdActive) {
+    // Conv-id mode: no content-anchor floor. Drop the whole reconstructible
+    // prefix [0, safeDropBefore).
+    dropStart = 0;
+  } else {
+    // Content-anchor fallback: preserve the first MCR_ANCHOR_USER_MESSAGES
+    // user messages exactly as before. Fewer than that → drop nothing.
+    const anchorIdx = findAnchorFloor(entries, MCR_ANCHOR_USER_MESSAGES);
+    if (anchorIdx < 0) return [0, 0];
+    dropStart = anchorIdx + 1;
+  }
   const dropEnd = safeDropBefore;
   if (dropEnd <= dropStart) return [0, 0];
   return [dropStart, dropEnd];
@@ -795,7 +885,8 @@ export default function (pi: ExtensionAPI) {
   // per-invocation session id (see resolveConversationId). Subsequent requests
   // in the same `pi` invocation reuse the upgraded value — invocation-stable
   // session_fp by construction, sent on the wire as X-NW-Conversation-ID.
-  const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
+  // CONV_ID_ENV is module-scoped (defined near MCR_ANCHOR_USER_MESSAGES) so
+  // the content-anchor decision in `computeDropRange` reads the same name.
   if (!process.env[CONV_ID_ENV]) {
     process.env[CONV_ID_ENV] = getUuidFallback();
   }
@@ -1209,9 +1300,23 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    // Whether a well-formed X-NW-Conversation-ID is on the wire for this
+    // session. When true the server keys identity on the conv-id, so the
+    // content-anchor floor (first 3 user messages) is unnecessary and the
+    // drop may honor `safe_drop_before` even in single-user-prompt agentic
+    // sessions. When false the legacy 3-user-message protection stands.
+    // See `computeDropRange` / `conversationIdActive` for the full rationale
+    // (Tom 2026-06-11 never-drop runaway, session 2d876919).
+    const convIdActive = conversationIdActive();
+    const userMsgCount = (
+      event.messages as Array<{ role?: string; type?: string }>
+    ).filter((m) => entryRole(m) === "user").length;
+    const belowAnchorFloor = userMsgCount < MCR_ANCHOR_USER_MESSAGES;
+
     const [dropStart, dropEnd] = computeDropRange(
       event.messages as Array<{ type: string }>,
       state.safeDropBefore,
+      convIdActive,
     );
 
     if (dropEnd <= dropStart) {
@@ -1221,6 +1326,8 @@ export default function (pi: ExtensionAPI) {
         drop_end: dropEnd,
         safe_drop_before: state.safeDropBefore,
         num_msgs: numMsgs,
+        conv_id_active: convIdActive,
+        user_msgs: userMsgCount,
         session_fp: state.sessionFp,
       });
       return;
@@ -1303,12 +1410,25 @@ export default function (pi: ExtensionAPI) {
     state.prevLocalLen = localLen;
 
     nwlog("context_drop", {
+      // `convid_no_anchor` marks the case the never-drop bug used to block:
+      // conv-id mode dropping with fewer than 3 user messages (single-prompt
+      // agentic sessions). Distinct so prod log analysis can confirm these
+      // sessions now drop. `convid` = conv-id mode at/above the floor;
+      // `content_anchor` = the legacy fallback path.
+      reason:
+        convIdActive && belowAnchorFloor
+          ? "convid_no_anchor"
+          : convIdActive
+            ? "convid"
+            : "content_anchor",
       drop_start: dropStart,
       drop_end: clampedEnd,
       safe_drop_before: state.safeDropBefore,
       num_msgs_before: numMsgs,
       num_msgs_after: filtered.length,
       dropped: droppedCount,
+      conv_id_active: convIdActive,
+      user_msgs: userMsgCount,
       session_fp: state.sessionFp,
     });
 

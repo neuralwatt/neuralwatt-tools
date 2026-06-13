@@ -404,7 +404,7 @@ describe("#44 dual-instance guard", () => {
     const sentinel = (globalThis as Record<string, unknown>)
       .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
     expect(sentinel).toBeTruthy();
-    expect(sentinel.version).toBe("2.5.1");
+    expect(sentinel.version).toBe("2.5.2");
     expect(typeof sentinel.module).toBe("string");
     expect(typeof sentinel.ts).toBe("string");
     // 2.5.1: the claim carries an activation id (ownership for touch/release)
@@ -414,7 +414,7 @@ describe("#44 dual-instance guard", () => {
 
     // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
     // bump, so prod can verify the rollout.
-    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.1");
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.2");
   });
 
   it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
@@ -439,8 +439,8 @@ describe("#44 dual-instance guard", () => {
         .find((l) => l.includes("dual_instance_blocked"));
       expect(blockedLine).toBeTruthy();
       const blocked = JSON.parse(blockedLine!);
-      expect(blocked.winner.version).toBe("2.5.1");
-      expect(blocked.loser.version).toBe("2.5.1");
+      expect(blocked.winner.version).toBe("2.5.2");
+      expect(blocked.loser.version).toBe("2.5.2");
 
       // …and on stderr (visible interactively).
       expect(errSpy).toHaveBeenCalled();
@@ -538,7 +538,7 @@ describe("2.5.1 dual-instance guard: stale-sentinel release (Nico false positive
     expect(stealLine).toBeTruthy();
     const steal = JSON.parse(stealLine!);
     expect(steal.prior.heartbeat_age_ms).toBeGreaterThan(30_000);
-    expect(steal.claimant.version).toBe("2.5.1");
+    expect(steal.claimant.version).toBe("2.5.2");
     expect(readLog()).not.toContain("dual_instance_blocked");
   });
 
@@ -663,12 +663,16 @@ describe("#44 post-drop stale-window self-heal", () => {
     };
   }
 
-  // History shape: 3 user anchors early (anchor floor = index 4, so
-  // dropStart = 5), then identical tool turns appended at the tail. Identical
-  // tail messages let a test freeze the window SIGNATURE (length + last-msg
-  // role/content-length) while the history grows, by moving safe_drop_before
-  // in lock-step — the simulated equivalent of whatever swallowed the new
-  // turns in prod.
+  // History shape: 3 user anchors early, then identical tool turns appended at
+  // the tail. These tests call session_start, so a well-formed conv-id is on
+  // the wire and (since 2.5.2) the drop honors safe_drop_before directly with
+  // dropStart = 0 — the anchor floor no longer applies. So `mkMsgs(n)` with
+  // safe_drop_before = s yields a window of n - s messages (indices [s, n)).
+  // Identical tail messages let a test freeze the window SIGNATURE (length +
+  // last-msg role/content-length) while the history grows, by moving
+  // safe_drop_before in lock-step — the simulated equivalent of whatever
+  // swallowed the new turns in prod. The stale-window invariant under test is
+  // orthogonal to where dropStart begins.
   function mkMsgs(n: number): Array<Record<string, unknown>> {
     const msgs: Array<Record<string, unknown>> = [
       { type: "user", content: "u1" },
@@ -712,17 +716,17 @@ describe("#44 post-drop stale-window self-heal", () => {
       const context = pi.handlers.get("context")!;
 
       // Turn 1: server authorizes drop<8; window built normally (baseline).
-      // drop range [5, 8) -> 7 of 10 messages go out.
+      // conv-id mode -> drop range [0, 8) -> 2 of 10 messages go out.
       await serverConfirm(pi, ctx, 8);
       const r1 = await context({ messages: mkMsgs(10) }, ctx);
-      expect(r1.messages).toHaveLength(7);
+      expect(r1.messages).toHaveLength(2);
 
       // Turn 2: local history grew (11 msgs) but the outgoing window is
       // shape-identical (same length, same tail) — trigger 1 of 2. Still
       // drops normally.
       await serverConfirm(pi, ctx, 9);
       const r2 = await context({ messages: mkMsgs(11) }, ctx);
-      expect(r2.messages).toHaveLength(7);
+      expect(r2.messages).toHaveLength(2);
       expect(readLog()).not.toContain("stale_window_self_heal");
 
       // Turn 3: frozen again while local grew — trigger 2 = N. SELF-HEAL:
@@ -738,7 +742,7 @@ describe("#44 post-drop stale-window self-heal", () => {
       expect(healLine).toBeTruthy();
       const heal = JSON.parse(healLine!);
       expect(heal.repeats).toBe(2);
-      expect(heal.window_len).toBe(7);
+      expect(heal.window_len).toBe(2);
       expect(heal.local_len).toBe(12);
       expect(errSpy).toHaveBeenCalled();
       expect(String(errSpy.mock.calls[0][0])).toContain(
@@ -769,10 +773,10 @@ describe("#44 post-drop stale-window self-heal", () => {
     // The same 10-message history sent 4 times (e.g. network retries): the
     // window signature is identical every time but the local history has NOT
     // grown, so the two-sided trigger stays false and the drop keeps
-    // applying.
+    // applying. conv-id mode -> drop [0, 8) -> 2 of 10 go out each time.
     for (let i = 0; i < 4; i++) {
       const r = await context({ messages: mkMsgs(10) }, ctx);
-      expect(r.messages).toHaveLength(7);
+      expect(r.messages).toHaveLength(2);
     }
     expect(readLog()).not.toContain("stale_window_self_heal");
   });
@@ -787,10 +791,11 @@ describe("#44 post-drop stale-window self-heal", () => {
 
     // safe_drop_before stays fixed while the history grows — the healthy
     // shape: the window's tail carries each new local turn, so the signature
-    // advances every request and the streak never starts.
+    // advances every request and the streak never starts. conv-id mode drops
+    // [0, 8) -> the window is n - 8 messages and grows with n.
     for (let n = 10; n <= 14; n++) {
       const r = await context({ messages: mkMsgs(n) }, ctx);
-      expect(r.messages).toHaveLength(n - 3); // fixed 3-message drop range
+      expect(r.messages).toHaveLength(n - 8); // fixed drop<8, window grows with n
     }
     expect(readLog()).not.toContain("stale_window_self_heal");
   });
@@ -802,24 +807,227 @@ describe("#44 post-drop stale-window self-heal", () => {
     await pi.handlers.get("session_start")!({}, ctx);
     const context = pi.handlers.get("context")!;
 
-    // Baseline (10 msgs, drop<8 -> 7 out), then ONE frozen-while-growing
+    // Baseline (10 msgs, drop<8 -> 2 out), then ONE frozen-while-growing
     // request (trigger 1 of 2)…
     await serverConfirm(pi, ctx, 8);
     await context({ messages: mkMsgs(10) }, ctx);
     await serverConfirm(pi, ctx, 9);
     const r2 = await context({ messages: mkMsgs(11) }, ctx);
-    expect(r2.messages).toHaveLength(7);
+    expect(r2.messages).toHaveLength(2);
 
-    // …then the window ADVANCES (same drop<9, history grows -> 8 out): the
+    // …then the window ADVANCES (same drop<9, history grows -> 3 out): the
     // consecutive-trigger streak must reset…
     const r3 = await context({ messages: mkMsgs(12) }, ctx);
-    expect(r3.messages).toHaveLength(8);
+    expect(r3.messages).toHaveLength(3);
 
     // …so a later single frozen request is trigger 1 again, not 2 — no heal.
     await serverConfirm(pi, ctx, 10);
     const r4 = await context({ messages: mkMsgs(13) }, ctx);
-    expect(r4.messages).toHaveLength(8);
+    expect(r4.messages).toHaveLength(3);
     expect(readLog()).not.toContain("stale_window_self_heal");
+  });
+});
+
+describe("2.5.2 conv-id mode honors safe_drop_before below the anchor floor", () => {
+  // Tom 2026-06-11, prod session 2d876919, ext 2.5.1: a codebase-audit-from-
+  // ONE-prompt session (1 user message + hundreds of assistant/tool turns)
+  // never dropped. The content-anchor floor (`findAnchorFloor` for the 3rd
+  // user message) returned -1 with <3 user messages, so `computeDropRange`
+  // returned an empty range and the extension emitted
+  // `context_no_drop reason=empty_range` every turn while the server's
+  // safe_drop_before climbed — the client re-sent the full ever-growing
+  // history forever (APC collapse, runaway cost). The floor is only needed
+  // for the server's content-anchor identity fallback (no conversation id);
+  // when a conv-id IS on the wire the server keys identity on it, so the
+  // floor must not block dropping.
+
+  function makeMCRCtx(sessionId: string) {
+    return {
+      model: { id: "neuralwatt/glm-5.1-long" },
+      sessionManager: { getSessionId: () => sessionId, getBranch: () => [] },
+      ui: { setStatus: () => {} },
+    };
+  }
+
+  // The server side of the drop handshake: confirm persisted history and
+  // authorize dropping everything before safeDropBefore.
+  async function serverConfirm(pi: MockPi, ctx: unknown, safeDropBefore: number) {
+    await pi.handlers.get("after_provider_response")!(
+      {
+        headers: {
+          "x-mcr-session-fp": "fp-test-2d87",
+          "x-mcr-safe-drop-before": String(safeDropBefore),
+          "x-mcr-stored-through": String(safeDropBefore),
+        },
+      },
+      ctx,
+    );
+  }
+
+  // Single-user-prompt agentic session: ONE user message, then n-1 mixed
+  // assistant/tool turns. This is the exact shape that hit anchorIdx === -1.
+  function mkSinglePrompt(n: number): Array<Record<string, unknown>> {
+    const msgs: Array<Record<string, unknown>> = [
+      { type: "user", content: "audit the whole codebase and fix the bugs" },
+    ];
+    let i = 0;
+    while (msgs.length < n) {
+      msgs.push(
+        i % 2 === 0
+          ? { type: "assistant", content: `step ${i}` }
+          : { type: "tool", content: `tool-result ${i}` },
+      );
+      i++;
+    }
+    return msgs;
+  }
+
+  // A session with >= 3 user messages (the content-anchor floor is satisfied).
+  function mkMultiPrompt(n: number): Array<Record<string, unknown>> {
+    const msgs: Array<Record<string, unknown>> = [
+      { type: "user", content: "u1" },
+      { type: "assistant", content: "a1" },
+      { type: "user", content: "u2" },
+      { type: "assistant", content: "a2" },
+      { type: "user", content: "u3" },
+      { type: "assistant", content: "a3" },
+    ];
+    let i = 0;
+    while (msgs.length < n) {
+      msgs.push({ type: "tool", content: `tool-result ${i++}` });
+    }
+    return msgs;
+  }
+
+  it("conv-id active + <3 user messages: drops [0, safeDrop), preserves the tail", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-single-1");
+    // session_start upgrades X_NW_CONVERSATION_ID to the stable session id —
+    // a well-formed conv-id is now on the wire, so the anchor floor lifts.
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+
+    await serverConfirm(pi, ctx, 5);
+    // 12 messages, 1 user message. Pre-fix this returned [0,0] (empty_range).
+    const r = await context({ messages: mkSinglePrompt(12) }, ctx);
+
+    // Drops the reconstructible prefix [0, 5): 5 messages gone, tail (>=5)
+    // intact -> 7 messages go out.
+    expect(r.messages).toHaveLength(7);
+    // The recent tail the server reserved (indices >= safeDropBefore) is never
+    // touched: the LAST local message is still present at the tail.
+    const sent = r.messages as Array<{ content?: unknown }>;
+    expect(sent[sent.length - 1].content).toBe("step 10");
+
+    // Distinct telemetry confirms a single-prompt drop happened.
+    const dropLine = readLog()
+      .split("\n")
+      .find((l) => l.includes('"context_drop"'));
+    expect(dropLine).toBeTruthy();
+    const drop = JSON.parse(dropLine!);
+    expect(drop.reason).toBe("convid_no_anchor");
+    expect(drop.drop_start).toBe(0);
+    expect(drop.drop_end).toBe(5);
+    expect(drop.conv_id_active).toBe(true);
+    expect(drop.user_msgs).toBe(1);
+    // The bug signature must NOT appear.
+    expect(readLog()).not.toContain("empty_range");
+  });
+
+  it("NO conv-id + <3 user messages: still drops nothing (content-anchor fallback intact)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-single-2");
+    const context = pi.handlers.get("context")!;
+
+    // Simulate the content-anchor fallback: NO conversation id on the wire.
+    // Do NOT call session_start (which would set the env var); clear the
+    // boot-seeded UUID so conversationIdActive() is false.
+    delete process.env.X_NW_CONVERSATION_ID;
+
+    await serverConfirm(pi, ctx, 5);
+    const r = await context({ messages: mkSinglePrompt(12) }, ctx);
+
+    // Fallback protection holds: fewer than 3 user messages -> drop nothing.
+    expect(r).toBeUndefined();
+    const noDropLine = readLog()
+      .split("\n")
+      .find((l) => l.includes('"context_no_drop"'));
+    expect(noDropLine).toBeTruthy();
+    const noDrop = JSON.parse(noDropLine!);
+    expect(noDrop.reason).toBe("empty_range");
+    expect(noDrop.conv_id_active).toBe(false);
+    expect(noDrop.user_msgs).toBe(1);
+  });
+
+  it(">=3 user messages, conv-id mode: drops from 0, tail preserved", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-multi-convid");
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+
+    await serverConfirm(pi, ctx, 5);
+    const r = await context({ messages: mkMultiPrompt(12) }, ctx);
+    // [0, 5) dropped -> 7 out; tail (indices >= 5) intact.
+    expect(r.messages).toHaveLength(7);
+    const drop = JSON.parse(
+      readLog().split("\n").find((l) => l.includes('"context_drop"'))!,
+    );
+    expect(drop.drop_start).toBe(0);
+    expect(drop.drop_end).toBe(5);
+    expect(drop.reason).toBe("convid"); // at/above the floor
+    expect(drop.user_msgs).toBe(3);
+  });
+
+  it(">=3 user messages, NO conv-id: unchanged legacy fallback (preserve first 3 user msgs)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-multi-fallback");
+    const context = pi.handlers.get("context")!;
+    // No conversation id on the wire -> content-anchor fallback.
+    delete process.env.X_NW_CONVERSATION_ID;
+
+    // 3rd user message is at index 4, so legacy dropStart = 5. Use a
+    // safeDropBefore beyond that so the range is non-empty.
+    await serverConfirm(pi, ctx, 8);
+    const r = await context({ messages: mkMultiPrompt(12) }, ctx);
+    // [5, 8) dropped -> 9 out; the 3 user anchors (indices 0,2,4) survive.
+    expect(r.messages).toHaveLength(9);
+    const sent = r.messages as Array<{ content?: unknown }>;
+    expect(sent.slice(0, 5).map((m) => m.content)).toEqual([
+      "u1",
+      "a1",
+      "u2",
+      "a2",
+      "u3",
+    ]);
+    const drop = JSON.parse(
+      readLog().split("\n").find((l) => l.includes('"context_drop"'))!,
+    );
+    expect(drop.drop_start).toBe(5);
+    expect(drop.reason).toBe("content_anchor");
+    expect(drop.conv_id_active).toBe(false);
+  });
+
+  it("conv-id mode never drops messages at/after safe_drop_before (reserved tail)", async () => {
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const ctx = makeMCRCtx("sess-tail-1");
+    await pi.handlers.get("session_start")!({}, ctx);
+    const context = pi.handlers.get("context")!;
+
+    // safeDropBefore = 9 on a 20-message single-prompt session: indices
+    // [0,9) drop, [9,20) (11 messages) are the reserved tail and must remain.
+    await serverConfirm(pi, ctx, 9);
+    const msgs = mkSinglePrompt(20);
+    const reservedTail = msgs.slice(9); // the messages that must survive
+    const r = await context({ messages: msgs }, ctx);
+
+    expect(r.messages).toHaveLength(11);
+    // Every reserved-tail message is present, in order, untouched.
+    expect((r.messages as Array<unknown>)).toEqual(reservedTail);
   });
 });
 
