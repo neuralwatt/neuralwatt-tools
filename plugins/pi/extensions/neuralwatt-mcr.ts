@@ -105,7 +105,39 @@ import { randomUUID } from "node:crypto";
 //           content-anchor fallback path (no conv-id) keeps the 3-user-message
 //           protection exactly as before. New `context_drop reason=convid_no_anchor`
 //           telemetry confirms single-prompt sessions now drop.
-const EXTENSION_VERSION = "2.5.2";
+//   2.5.3 — keep honoring `safe_drop_before` across a session BRANCH (Tom
+//           2026-06-14, ext 2.5.2). A pi branch/fork/resume/reload re-evaluates
+//           this extension module under jiti (`moduleCache:false` — see
+//           pi-coding-agent extensions/loader.js `loadExtensionModule`), so the
+//           module-scoped `state` is recreated fresh with `sessionFp: null` and
+//           `safeDropBefore: 0` on EVERY branch — independent of the
+//           session_start handler's own reset, and unavoidable in module scope.
+//           The wire `X-NW-Conversation-ID`, by contrast, PERSISTS across the
+//           re-eval (process.env survives it and resolveConversationId
+//           re-derives the same pi session id), so the gateway keeps the SAME
+//           session_fp and keeps emitting `safe_drop_before`. But the
+//           freshly-wiped client has no local sessionFp, so the `context`
+//           handler hit `if (!state.sessionFp) return` (`context_skip
+//           reason=no_session_fp`) and NEVER pruned — the window ran away
+//           (Tom: 1.36M client-window tokens, server `safe_drop_before=615`
+//           ignored, repeating `session_shutdown final_session_fp=null` +
+//           `context_skip no_session_fp`; a fresh non-branched session dropped
+//           fine). pi-vcc / dual-instance stacking was RULED OUT by repro (a
+//           stacked session dropped fine, 17,102 msgs pruned). Fix: persist the
+//           drop high-water (sessionFp / safe_drop_before / stored_through) on
+//           globalThis — the ONLY scope that survives the jiti re-eval, where
+//           the tools#44 dual-instance sentinel already lives — keyed by the
+//           persistent conv-id, and RESTORE it (in `session_start` and, as a
+//           request-path backstop, in `context`) when the conv-id matches, so a
+//           branch-nulled fp self-heals on turn 1. Keying by conv-id makes the
+//           distinction automatic: a genuinely new conversation, a fork to a
+//           NEW session id, or a session_tree branch with its own `:leafId`
+//           conv-id has no cache entry → the clean reset stands. New
+//           `drop_state_restored` telemetry marks the self-heal. The 2.4.0
+//           stale-window self-heal (which now also clears the cached high-water,
+//           so a post-heal reload can't re-freeze) and the 2.5.2 conv-id drop
+//           are preserved.
+const EXTENSION_VERSION = "2.5.3";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -332,6 +364,118 @@ function releaseDualInstanceSentinel(activationId: string): void {
     }
   } catch {
     // never break shutdown on guard bookkeeping
+  }
+}
+
+// ── Cross-activation drop-state cache (2.5.3) ───────────────────────────────
+// A pi branch/fork/resume/reload re-evaluates this module under jiti
+// (`moduleCache:false`), so the module-scoped `state` below is recreated fresh
+// with `sessionFp: null` / `safeDropBefore: 0` on EVERY such event — the
+// session_start reset is just the in-process analogue of that. The wire
+// conv-id PERSISTS across the re-eval (process.env survives it), so the gateway
+// keeps the same session_fp and keeps emitting `safe_drop_before`; without a
+// way to carry the drop high-water across the re-eval the client skips every
+// drop with `no_session_fp` and the window runs away (Tom 2026-06-14).
+//
+// globalThis is the ONLY scope that survives the re-eval (same reason the
+// tools#44 dual-instance sentinel lives there). We stash the drop high-water
+// here keyed by the persistent conv-id, so the next activation can RESTORE it
+// when the conv-id matches. Keying by conv-id is what distinguishes a
+// continuation (resume/reload of the same conversation → restore) from a
+// genuinely new conversation, a fork to a NEW session id, or a session_tree
+// branch with its own `:leafId` conv-id (no cache entry → clean reset).
+const DROP_STATE_CACHE_KEY = "__NEURALWATT_MCR_DROP_STATE_V1__";
+
+// Bound memory: retain at most this many conversations, evicting the
+// least-recently-updated. A coding session touches one conv-id at a time, so
+// this is generous headroom, not a working-set limit.
+const DROP_STATE_MAX_ENTRIES = 64;
+
+// A conversation whose high-water hasn't been refreshed in this long is treated
+// as ended: a resume after it won't restore a stale high-water (the gateway may
+// have evicted the MCR session anyway, and the first response re-establishes it).
+const DROP_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+interface PersistedDropState {
+  sessionFp: string | null;
+  safeDropBefore: number;
+  storedThrough: number;
+  /** ms epoch of the last refresh — drives TTL expiry and LRU eviction. */
+  ts: number;
+}
+
+// The conv-id → drop-state map on globalThis, created on first use. Returns
+// null only if globalThis is frozen/sealed (fail-open: the drop simply behaves
+// as pre-2.5.3, never breaks).
+function dropStateMap(): Record<string, PersistedDropState> | null {
+  try {
+    const g = globalThis as unknown as Record<string, unknown>;
+    let map = g[DROP_STATE_CACHE_KEY] as
+      | Record<string, PersistedDropState>
+      | undefined;
+    if (!map || typeof map !== "object") {
+      map = {};
+      g[DROP_STATE_CACHE_KEY] = map;
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+// Read this conversation's persisted drop high-water, or null if absent/expired.
+function loadPersistedDropState(convId: string): PersistedDropState | null {
+  if (!convId) return null;
+  const map = dropStateMap();
+  if (!map) return null;
+  const entry = map[convId];
+  if (!entry) return null;
+  if (Date.now() - entry.ts > DROP_STATE_TTL_MS) {
+    delete map[convId];
+    return null;
+  }
+  return entry;
+}
+
+// Persist this conversation's drop high-water so a later branch/resume/reload
+// can restore it. Evicts the least-recently-updated entries past the cap.
+function savePersistedDropState(
+  convId: string,
+  next: {
+    sessionFp: string | null;
+    safeDropBefore: number;
+    storedThrough: number;
+  },
+): void {
+  if (!convId) return;
+  const map = dropStateMap();
+  if (!map) return;
+  try {
+    map[convId] = { ...next, ts: Date.now() };
+    const keys = Object.keys(map);
+    if (keys.length > DROP_STATE_MAX_ENTRIES) {
+      keys
+        .sort((a, b) => (map[a].ts ?? 0) - (map[b].ts ?? 0))
+        .slice(0, keys.length - DROP_STATE_MAX_ENTRIES)
+        .forEach((k) => delete map[k]);
+    }
+  } catch {
+    // never break a handler on cache bookkeeping
+  }
+}
+
+// Drop this conversation's persisted high-water (used by the stale-window
+// self-heal: it intentionally sends the full history so the server
+// re-establishes stored_through; a restore of the pre-heal high-water on a
+// subsequent reload would re-freeze the window).
+function clearPersistedDropState(convId: string): void {
+  if (!convId) return;
+  const map = dropStateMap();
+  if (!map) return;
+  try {
+    delete map[convId];
+  } catch {
+    // never break a handler on cache bookkeeping
   }
 }
 
@@ -631,6 +775,39 @@ function isWellFormedConversationId(value: string): boolean {
 function conversationIdActive(): boolean {
   const id = process.env[CONV_ID_ENV];
   return typeof id === "string" && isWellFormedConversationId(id);
+}
+
+// The conv-id currently on the wire (the live value of CONV_ID_ENV). Used as
+// the cache key for the cross-activation drop-state restore (2.5.3). Returns
+// "" when unset, which the cache helpers treat as "no key" (no read/write).
+function currentConversationId(): string {
+  const id = process.env[CONV_ID_ENV];
+  return typeof id === "string" ? id : "";
+}
+
+// Re-establish the module-scoped drop high-water from the globalThis cache for
+// `convId`, if a usable entry exists. Returns the restored snapshot (so the
+// caller can log it) or null. Only restores an ACTIONABLE high-water — a cached
+// sessionFp or a positive safe_drop_before; a bare zero would just fall through
+// to the normal first-response path. This is the branch self-heal: after a
+// jiti re-eval nulled `state`, a matching conv-id restores fp + safe_drop_before
+// so the very next `context` keeps pruning instead of skipping forever
+// (Tom 2026-06-14). See the cache block above for why this is correct and safe.
+function restoreDropStateFromCache(convId: string): PersistedDropState | null {
+  const cached = loadPersistedDropState(convId);
+  if (!cached) return null;
+  if (!cached.sessionFp && cached.safeDropBefore <= 0) return null;
+  state.sessionFp = cached.sessionFp;
+  state.safeDropBefore = cached.safeDropBefore;
+  state.storedThrough = cached.storedThrough;
+  if (cached.sessionFp) {
+    state.lastMcrMeta = {
+      session_fp: cached.sessionFp,
+      stored_through: cached.storedThrough,
+      safe_drop_before: cached.safeDropBefore,
+    };
+  }
+  return cached;
 }
 
 // Per-process fallback id. Generated lazily so it stays stable across
@@ -1074,7 +1251,7 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar(ctx);
   }
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     touchDualInstanceSentinel(activationId);
     // #4111: clear the active branch suffix at session boot so a fresh pi
     // invocation always starts with the bare session id on the wire. Branch
@@ -1135,6 +1312,40 @@ export default function (pi: ExtensionAPI) {
     // within one `pi` invocation. Nulling it on session_start causes
     // conversation ID thrashing during double-start races (the root cause
     // of the "two brains" MCR session_fp flip).
+
+    // 2.5.3: re-establish the drop high-water across a pi BRANCH/fork/resume/
+    // reload. jiti re-evaluated this module (the reset above is the in-process
+    // analogue of that wipe), but the conv-id persisted, so the gateway still
+    // holds this conversation's fp + safe_drop_before. Restoring from the
+    // globalThis cache (keyed by the persistent conv-id) lets the very next
+    // `context` keep honoring safe_drop_before instead of skipping with
+    // no_session_fp until a fresh response re-establishes it — the runaway Tom
+    // hit (2026-06-14). A genuinely new conversation (or a fork to a NEW
+    // session id, or a session_tree branch with its own `:leafId` conv-id) has
+    // NO cache entry for this conv-id → the clean reset above stands.
+    const restoredAtStart = restoreDropStateFromCache(conversationId);
+    if (restoredAtStart) {
+      const reason =
+        typeof (event as { reason?: unknown })?.reason === "string"
+          ? (event as { reason: string }).reason
+          : null;
+      nwlog("drop_state_restored", {
+        source: "session_start",
+        reason,
+        conversation_id_prefix: conversationId.slice(0, 8),
+        session_fp: restoredAtStart.sessionFp,
+        safe_drop_before: restoredAtStart.safeDropBefore,
+        stored_through: restoredAtStart.storedThrough,
+      });
+      console.error(
+        `[neuralwatt-mcr] DROP STATE RESTORED after branch/${reason ?? "?"} — ` +
+          `conv ${conversationId.slice(0, 8)} fp ` +
+          `${restoredAtStart.sessionFp ?? "-"} safe_drop_before=` +
+          `${restoredAtStart.safeDropBefore}; the window keeps pruning across ` +
+          `the branch (neuralwatt-tools branch-session-fp fix).`,
+      );
+    }
+
     ctx.ui.setStatus(MCR_STATUS_KEY, "");
     ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
   });
@@ -1203,6 +1414,14 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromHeaders.safe_drop_before;
       state.storedThrough = mcrFromHeaders.stored_through;
       state.lastMcrMeta = mcrFromHeaders;
+      // 2.5.3: persist the drop high-water under the wire conv-id so a later
+      // branch/fork/resume/reload (which re-evaluates this module under jiti
+      // and nulls `state`) can restore it and keep honoring safe_drop_before.
+      savePersistedDropState(currentConversationId(), {
+        sessionFp: state.sessionFp,
+        safeDropBefore: state.safeDropBefore,
+        storedThrough: state.storedThrough,
+      });
     }
 
     updateStatusBar(ctx);
@@ -1240,6 +1459,13 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromBody.safe_drop_before;
       state.storedThrough = mcrFromBody.stored_through;
       state.lastMcrMeta = mcrFromBody;
+      // 2.5.3: persist the drop high-water so a later branch/resume/reload can
+      // restore it (see the after_provider_response note + the cache block).
+      savePersistedDropState(currentConversationId(), {
+        sessionFp: state.sessionFp,
+        safeDropBefore: state.safeDropBefore,
+        storedThrough: state.storedThrough,
+      });
     }
 
     const energy = extractEnergyFromBody(msg);
@@ -1280,6 +1506,36 @@ export default function (pi: ExtensionAPI) {
     // about MCR sessions only. Behaviour for MCR models is unchanged.
     if (!isMCRModel(modelId)) {
       return;
+    }
+    // 2.5.3 branch self-heal (request-path backstop). If a pi branch/fork/
+    // resume/reload re-evaluated this module and nulled `state.sessionFp`, but
+    // this conversation's drop high-water is cached under the persistent
+    // conv-id, restore it here — BEFORE the no_session_fp skip — so the drop
+    // keeps honoring the server's safe_drop_before instead of skipping forever
+    // and letting the window run away (Tom 2026-06-14). In the normal flow
+    // session_start already restored it, so this fires only on paths where it
+    // didn't (e.g. a context event without a preceding session_start). A
+    // genuinely new conv-id has no cache entry → no restore → the legitimate
+    // first-turn no_session_fp skip below still applies.
+    if (!state.sessionFp) {
+      const convId = currentConversationId();
+      const restored = restoreDropStateFromCache(convId);
+      if (restored) {
+        nwlog("drop_state_restored", {
+          source: "context",
+          conversation_id_prefix: convId.slice(0, 8),
+          session_fp: restored.sessionFp,
+          safe_drop_before: restored.safeDropBefore,
+          stored_through: restored.storedThrough,
+        });
+        console.error(
+          `[neuralwatt-mcr] DROP STATE RESTORED after branch/resume — conv ` +
+            `${convId.slice(0, 8)} fp ${restored.sessionFp ?? "-"} ` +
+            `safe_drop_before=${restored.safeDropBefore}; honoring the server ` +
+            `drop across the branch (neuralwatt-tools branch-session-fp fix).`,
+        );
+        updateStatusBar(ctx);
+      }
     }
     if (!state.sessionFp) {
       nwlog("context_skip", {
@@ -1401,6 +1657,11 @@ export default function (pi: ExtensionAPI) {
       state.prevWindowSig = null;
       state.prevLocalLen = 0;
       state.staleWindowRepeats = 0;
+      // 2.5.3: drop the persisted high-water for this conversation too. We're
+      // intentionally sending the full history so the server re-establishes
+      // stored_through; if a later branch/reload restored the pre-heal
+      // high-water it would re-freeze the very window we just healed.
+      clearPersistedDropState(currentConversationId());
       updateStatusBar(ctx);
       // No message mutation — the full local history goes out on this request.
       return;

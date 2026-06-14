@@ -113,12 +113,21 @@ function clearDualInstanceSentinel() {
   delete (globalThis as Record<string, unknown>).__NEURALWATT_MCR_ACTIVE__;
 }
 
+// 2.5.3: the cross-activation drop-state cache also lives on globalThis (it
+// must survive jiti module re-evaluation across a branch). The test module is
+// imported once, so this map persists across tests — clear it for isolation,
+// exactly like the dual-instance sentinel above.
+function clearDropStateCache() {
+  delete (globalThis as Record<string, unknown>).__NEURALWATT_MCR_DROP_STATE_V1__;
+}
+
 beforeEach(() => {
   // Reset the env-var seeds and the log between tests. Re-seed the conversation
   // id the same way the extension does at module load (it only seeds once).
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
   clearDualInstanceSentinel();
+  clearDropStateCache();
   try {
     fs.rmSync(logPath());
   } catch {
@@ -130,6 +139,7 @@ afterEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
   clearDualInstanceSentinel();
+  clearDropStateCache();
 });
 
 describe("X-NW-Conversation-ID header wiring", () => {
@@ -404,7 +414,7 @@ describe("#44 dual-instance guard", () => {
     const sentinel = (globalThis as Record<string, unknown>)
       .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
     expect(sentinel).toBeTruthy();
-    expect(sentinel.version).toBe("2.5.2");
+    expect(sentinel.version).toBe("2.5.3");
     expect(typeof sentinel.module).toBe("string");
     expect(typeof sentinel.ts).toBe("string");
     // 2.5.1: the claim carries an activation id (ownership for touch/release)
@@ -414,7 +424,7 @@ describe("#44 dual-instance guard", () => {
 
     // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
     // bump, so prod can verify the rollout.
-    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.2");
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.3");
   });
 
   it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
@@ -439,8 +449,8 @@ describe("#44 dual-instance guard", () => {
         .find((l) => l.includes("dual_instance_blocked"));
       expect(blockedLine).toBeTruthy();
       const blocked = JSON.parse(blockedLine!);
-      expect(blocked.winner.version).toBe("2.5.2");
-      expect(blocked.loser.version).toBe("2.5.2");
+      expect(blocked.winner.version).toBe("2.5.3");
+      expect(blocked.loser.version).toBe("2.5.3");
 
       // …and on stderr (visible interactively).
       expect(errSpy).toHaveBeenCalled();
@@ -538,7 +548,7 @@ describe("2.5.1 dual-instance guard: stale-sentinel release (Nico false positive
     expect(stealLine).toBeTruthy();
     const steal = JSON.parse(stealLine!);
     expect(steal.prior.heartbeat_age_ms).toBeGreaterThan(30_000);
-    expect(steal.claimant.version).toBe("2.5.2");
+    expect(steal.claimant.version).toBe("2.5.3");
     expect(readLog()).not.toContain("dual_instance_blocked");
   });
 
@@ -1028,6 +1038,271 @@ describe("2.5.2 conv-id mode honors safe_drop_before below the anchor floor", ()
     expect(r.messages).toHaveLength(11);
     // Every reserved-tail message is present, in order, untouched.
     expect((r.messages as Array<unknown>)).toEqual(reservedTail);
+  });
+});
+
+describe("2.5.3 keeps honoring safe_drop_before across a session branch", () => {
+  // Regression: Tom 2026-06-14, ext 2.5.2. A pi BRANCH (session_shutdown then a
+  // module re-eval under jiti, then session_start with reason "fork"/"resume"/
+  // "reload") recreates the module-scoped `state` with sessionFp=null /
+  // safeDropBefore=0. The conv-id (= pi session id) PERSISTS across the re-eval,
+  // so the gateway keeps the same session_fp and keeps emitting
+  // safe_drop_before — but the freshly-wiped client hit `if (!state.sessionFp)
+  // return` (`context_skip no_session_fp`) and NEVER pruned, so the window ran
+  // away (1.36M client-window tokens, server safe_drop_before=615 ignored,
+  // repeating `session_shutdown final_session_fp=null`). A fresh non-branched
+  // session dropped fine; pi-vcc / dual-instance stacking was ruled out by repro.
+  // Fix: stash the drop high-water on globalThis (survives the jiti re-eval)
+  // keyed by the persistent conv-id and restore it when the conv-id matches.
+
+  function makeMCRCtx(sessionId: string) {
+    return {
+      model: { id: "neuralwatt/glm-5.1-long" },
+      sessionManager: { getSessionId: () => sessionId, getBranch: () => [] },
+      ui: { setStatus: () => {} },
+    };
+  }
+
+  async function serverConfirm(
+    pi: MockPi,
+    ctx: unknown,
+    safeDropBefore: number,
+    fp = "fp-branch-2d87",
+  ) {
+    await pi.handlers.get("after_provider_response")!(
+      {
+        headers: {
+          "x-mcr-session-fp": fp,
+          "x-mcr-safe-drop-before": String(safeDropBefore),
+          "x-mcr-stored-through": String(safeDropBefore),
+        },
+      },
+      ctx,
+    );
+  }
+
+  // Single-user-prompt agentic session (1 user msg + mixed assistant/tool
+  // turns) — the runaway shape. conv-id mode drops [0, safeDropBefore).
+  function mkSinglePrompt(n: number): Array<Record<string, unknown>> {
+    const msgs: Array<Record<string, unknown>> = [
+      { type: "user", content: "audit the whole codebase" },
+    ];
+    let i = 0;
+    while (msgs.length < n) {
+      msgs.push(
+        i % 2 === 0
+          ? { type: "assistant", content: `step ${i}` }
+          : { type: "tool", content: `tool-result ${i}` },
+      );
+      i++;
+    }
+    return msgs;
+  }
+
+  // Identical-tail history (1 user anchor + repeated identical tool turns). In
+  // conv-id mode the drop is [0, s), so the outgoing window is msgs[s..n): with
+  // s and n moving in lockstep the window length AND last-message identity stay
+  // fixed → the signature freezes while local history grows (the stale-window
+  // trigger). mkSinglePrompt's per-index content would change the tail and so
+  // never freeze.
+  function mkIdenticalTail(n: number): Array<Record<string, unknown>> {
+    const msgs: Array<Record<string, unknown>> = [
+      { type: "user", content: "u1" },
+    ];
+    while (msgs.length < n) msgs.push({ type: "tool", content: "tool-result" });
+    return msgs;
+  }
+
+  function dropCache(): Record<string, unknown> {
+    return (globalThis as Record<string, unknown>)
+      .__NEURALWATT_MCR_DROP_STATE_V1__ as Record<string, unknown>;
+  }
+
+  it("a branch (session_start fires, conv-id persists) still computes a non-empty drop on the next turn", async () => {
+    const ext = await loadExtension();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pi1 = makeMockPi();
+      ext(pi1);
+      const ctx = makeMCRCtx("sess-branch-1");
+
+      // Boot + establish the server drop high-water; after_provider_response
+      // caches it under the conv-id (= "sess-branch-1").
+      await pi1.handlers.get("session_start")!({ reason: "startup" }, ctx);
+      await serverConfirm(pi1, ctx, 5);
+      expect(dropCache()["sess-branch-1"]).toMatchObject({
+        sessionFp: "fp-branch-2d87",
+        safeDropBefore: 5,
+      });
+
+      // Baseline: the drop applies normally (12 msgs, drop [0,5) -> 7 out).
+      const r0 = await pi1.handlers.get("context")!(
+        { messages: mkSinglePrompt(12) },
+        ctx,
+      );
+      expect(r0.messages).toHaveLength(7);
+
+      // ── BRANCH ──: pi tears the runner down and re-evaluates the module
+      // (fresh state, sessionFp=null), then re-activates and fires session_start
+      // with a branch reason. The conv-id is UNCHANGED (same pi session id).
+      await pi1.handlers.get("session_shutdown")!({ reason: "fork" }, ctx);
+      const pi2 = makeMockPi();
+      ext(pi2); // re-activation registers cleanly (sentinel was released)
+      expect(pi2.handlers.size).toBeGreaterThan(0);
+      await pi2.handlers.get("session_start")!({ reason: "fork" }, ctx);
+
+      // The fp self-healed from the cache at session_start.
+      const restoreLine = readLog()
+        .split("\n")
+        .find((l) => l.includes("drop_state_restored"));
+      expect(restoreLine).toBeTruthy();
+      const restored = JSON.parse(restoreLine!);
+      expect(restored.source).toBe("session_start");
+      expect(restored.reason).toBe("fork");
+      expect(restored.session_fp).toBe("fp-branch-2d87");
+      expect(restored.safe_drop_before).toBe(5);
+
+      // CRUCIAL: the very next context STILL drops — it did NOT get stuck in the
+      // no_session_fp skip that caused Tom's runaway. 13 msgs, drop [0,5) -> 8.
+      const r1 = await pi2.handlers.get("context")!(
+        { messages: mkSinglePrompt(13) },
+        ctx,
+      );
+      expect(r1).not.toBeUndefined();
+      expect(r1.messages).toHaveLength(8);
+      // The bug signature is absent across the whole branched flow.
+      expect(readLog()).not.toContain("no_session_fp");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("a genuinely new conversation after a branch resets cleanly (no cross-conversation restore)", async () => {
+    const ext = await loadExtension();
+    const pi1 = makeMockPi();
+    ext(pi1);
+    const ctxA = makeMCRCtx("sess-A");
+    await pi1.handlers.get("session_start")!({ reason: "startup" }, ctxA);
+    await serverConfirm(pi1, ctxA, 5); // caches sess-A's high-water
+
+    // Teardown, then a brand-NEW session with a DIFFERENT id (e.g. /new).
+    await pi1.handlers.get("session_shutdown")!({ reason: "new" }, ctxA);
+    const pi2 = makeMockPi();
+    ext(pi2);
+    const ctxB = makeMCRCtx("sess-B-fresh");
+    await pi2.handlers.get("session_start")!({ reason: "new" }, ctxB);
+
+    // No cache entry for the new conv-id → NO restore at session_start.
+    expect(readLog()).not.toContain("drop_state_restored");
+
+    // First turn of the new conversation legitimately has no fp → skip (the
+    // correct clean-reset behaviour, NOT the runaway).
+    const r = await pi2.handlers.get("context")!(
+      { messages: mkSinglePrompt(12) },
+      ctxB,
+    );
+    expect(r).toBeUndefined();
+    expect(readLog()).toContain("no_session_fp");
+  });
+
+  it("the context backstop restores the fp when session_start did not (request-path self-heal)", async () => {
+    const ext = await loadExtension();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pi = makeMockPi();
+      ext(pi);
+
+      // Seed a cached high-water for a conversation, as a prior activation's
+      // after_provider_response would have.
+      (globalThis as Record<string, unknown>).__NEURALWATT_MCR_DROP_STATE_V1__ = {
+        "sess-ctx-heal": {
+          sessionFp: "fp-cached-77",
+          safeDropBefore: 5,
+          storedThrough: 5,
+          ts: Date.now(),
+        },
+      };
+
+      // Boot an UNRELATED session so state.sessionFp is reset to null with no
+      // restore (no cache entry for "sess-unrelated").
+      const otherCtx = makeMCRCtx("sess-unrelated");
+      await pi.handlers.get("session_start")!({ reason: "startup" }, otherCtx);
+      expect(readLog()).not.toContain("drop_state_restored");
+
+      // Now the wire conv-id points at the cached conversation (a resume that
+      // re-derived this id) while state.sessionFp is still null. The context
+      // handler must restore from the cache and drop, NOT skip no_session_fp.
+      process.env.X_NW_CONVERSATION_ID = "sess-ctx-heal";
+      const r = await pi.handlers.get("context")!(
+        { messages: mkSinglePrompt(12) },
+        otherCtx,
+      );
+      expect(r).not.toBeUndefined();
+      expect(r.messages).toHaveLength(7); // [0,5) dropped
+      const restoreLine = readLog()
+        .split("\n")
+        .find((l) => l.includes("drop_state_restored"));
+      expect(restoreLine).toBeTruthy();
+      expect(JSON.parse(restoreLine!).source).toBe("context");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("an expired (>TTL) cached high-water is not restored", async () => {
+    const ext = await loadExtension();
+    const pi = makeMockPi();
+    ext(pi);
+    // A day-and-change-old entry: the conversation is treated as ended.
+    (globalThis as Record<string, unknown>).__NEURALWATT_MCR_DROP_STATE_V1__ = {
+      "sess-stale": {
+        sessionFp: "fp-old",
+        safeDropBefore: 5,
+        storedThrough: 5,
+        ts: Date.now() - (24 * 60 * 60 * 1000 + 60_000),
+      },
+    };
+    const ctx = makeMCRCtx("sess-stale");
+    await pi.handlers.get("session_start")!({ reason: "resume" }, ctx);
+    // Expired → no restore; the first response will re-establish the fp.
+    expect(readLog()).not.toContain("drop_state_restored");
+    const r = await pi.handlers.get("context")!(
+      { messages: mkSinglePrompt(12) },
+      ctx,
+    );
+    expect(r).toBeUndefined();
+    expect(readLog()).toContain("no_session_fp");
+  });
+
+  it("the stale-window self-heal clears the cached high-water so a later reload can't re-freeze", async () => {
+    const ext = await loadExtension();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pi = makeMockPi();
+      ext(pi);
+      const ctx = makeMCRCtx("sess-heal-cache");
+      await pi.handlers.get("session_start")!({ reason: "startup" }, ctx);
+      const context = pi.handlers.get("context")!;
+
+      // Drive the stale-window invariant to a heal (window frozen while local
+      // history grows for N=2 consecutive requests — identical tail, s and n in
+      // lockstep so the window length and last message stay fixed).
+      await serverConfirm(pi, ctx, 8);
+      await context({ messages: mkIdenticalTail(10) }, ctx);
+      expect(dropCache()["sess-heal-cache"]).toBeTruthy();
+      await serverConfirm(pi, ctx, 9);
+      await context({ messages: mkIdenticalTail(11) }, ctx);
+      await serverConfirm(pi, ctx, 10);
+      const healed = await context({ messages: mkIdenticalTail(12) }, ctx);
+
+      expect(healed).toBeUndefined(); // full history sent
+      expect(readLog()).toContain("stale_window_self_heal");
+      // The cached high-water was dropped so a subsequent reload won't restore
+      // the pre-heal safe_drop_before and re-freeze the window.
+      expect(dropCache()["sess-heal-cache"]).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
 
