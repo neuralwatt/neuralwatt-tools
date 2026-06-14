@@ -149,7 +149,7 @@ This adds MCR-backed models (`neuralwatt/kimi-k2.6-long`, `neuralwatt/glm-5.1-lo
 
 ## Skills: Use Neuralwatt Skills with Pi
 
-If you have Neuralwatt-specific skills (e.g., from [neuralwatt-claude-skills](https://github.com/neuralwatt/neuralwatt-claude-skills)), place them in `~/.pi/agent/skills/` or `~/.agents/skills/` and Pi discovers them automatically at startup.
+If you have Neuralwatt-specific skills, place them in `~/.pi/agent/skills/` or `~/.agents/skills/` and Pi discovers them automatically at startup.
 
 ## Configuration Notes
 

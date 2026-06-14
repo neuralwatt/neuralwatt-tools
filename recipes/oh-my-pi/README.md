@@ -117,12 +117,12 @@ curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
 
 ## Skills: Reuse Your Pi Skills
 
-Oh My Pi auto-discovers skills from `~/.pi/agent/skills/` (the `skills.enablePiUser` setting defaults to `true`). If you have Neuralwatt-specific skills there (e.g. from [neuralwatt-claude-skills](https://github.com/neuralwatt/neuralwatt-claude-skills)), they work without extra configuration.
+Oh My Pi auto-discovers skills from `~/.pi/agent/skills/` (the `skills.enablePiUser` setting defaults to `true`). If you have Neuralwatt-specific skills there, they work without extra configuration.
 
 To add skill directories that omp doesn't scan by default:
 
 ```bash
-omp config set skills.customDirectories '["~/src/neuralwatt-claude-skills"]'
+omp config set skills.customDirectories '["/path/to/your/skills"]'
 ```
 
 ## Configuration Notes
