@@ -47,6 +47,7 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 | [Open WebUI](recipes/open-webui/) | Self-hosted ChatGPT-style web UI | [Setup guide](recipes/open-webui/README.md) |
 | [OpenCode](recipes/opencode/) | AI coding agent CLI | [Setup guide](recipes/opencode/README.md) |
 | [Oh My Pi](recipes/oh-my-pi/) | Terminal AI coding agent with sub-agents, LSP, and memory | [Setup guide](recipes/oh-my-pi/README.md) |
+| [Pi](recipes/pi/) | Minimal terminal coding agent with Neuralwatt models | [Setup guide](recipes/pi/README.md) |
 | [llm plugin](plugins/llm-neuralwatt/) | Use Neuralwatt with [simonw/llm](https://llm.datasette.io/) CLI | [Setup guide](plugins/llm-neuralwatt/README.md) |
 | [Pi MCR extension](plugins/pi/) *(private beta)* | Unlock 1M virtual context in [Pi](https://pi.dev) via Neuralwatt MCR | [Setup guide](plugins/pi/README.md) |
 | [Build your own MCR client](docs/mcr-context-drop-client-protocol.md) | Integrate MCR context management into any OpenAI-/Anthropic-compatible client | [Protocol spec](docs/mcr-context-drop-client-protocol.md) |
@@ -69,6 +70,7 @@ neuralwatt-tools/
     ├── hermes/              # Nous Research Hermes Agent setup
     ├── open-webui/          # Self-hosted ChatGPT-style web UI
     ├── oh-my-pi/            # Oh My Pi terminal agent setup
+    ├── pi/                  # Pi terminal agent setup
     ├── opencode/            # AI coding agent CLI setup
     ├── neovim/              # Energy monitor + AI plugin configs
     └── tmux/                # Statusline integration
