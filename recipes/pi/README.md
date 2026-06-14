@@ -147,6 +147,8 @@ pi install npm:@neuralwatt/pi-mcr-extension
 
 This adds MCR-backed models (`neuralwatt/kimi-k2.6-long`, `neuralwatt/glm-5.1-long`) with server-side compaction that gives you a 1M token virtual context window. See the [MCR extension docs](../../plugins/pi/README.md) for details.
 
+> **If you install the MCR extension**, remove the `neuralwatt` provider from `~/.pi/agent/models.json` (or delete the file entirely). The extension registers the `neuralwatt` provider itself, and a hand-edited `models.json` entry will shadow it, preventing the long-context aliases from appearing in `/model`.
+
 ## Configuration Notes
 
 - The `apiKey` field supports environment variable interpolation with `$ENV_VAR` or `${ENV_VAR}` syntax. It also supports shell command execution with `!command` for secrets managers (e.g., `"apiKey": "!op read 'op://vault/item/key'"`).
