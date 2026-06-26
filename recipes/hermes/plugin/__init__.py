@@ -5,10 +5,20 @@ Install this directory into ``~/.hermes/plugins/model-providers/neuralwatt/``
 provider so it shows up in ``hermes status`` and the ``/model`` picker with a
 real model catalog, instead of an anonymous "Custom endpoint".
 
-Neuralwatt is OpenAI-compatible, so Hermes live-fetches the model catalog from
-``models_url`` (``{base_url}/models``). ``fallback_models`` is only consulted
-when that endpoint is unreachable, so the live API is always the source of
-truth and this list cannot silently go stale.
+Neuralwatt is OpenAI-compatible, so Hermes live-fetches the model *catalog*
+(the ``/model`` picker list) from ``models_url`` (``{base_url}/models``). The
+live API is the source of truth there, so the picker can't silently go stale.
+
+Two IDs are *not* covered by that live fetch and are pinned here / in the
+recipe README: ``default_aux_model`` below, and the README's ``config.yaml``
+``model.default``. Both exist in the live catalog today; if either is ever
+retired upstream, refresh it here (aux) and in the README (default).
+
+``fallback_models`` is consulted only when ``models_url`` is unreachable. It is
+intentionally the public (unauthenticated) ``/v1/models`` set — the standard
+tiers. Flex variants and any enrollment-gated models are deliberately omitted
+from this fallback; they still appear in the live picker for keys that can see
+them, so this gap is not drift to "fix".
 """
 
 from providers import register_provider
@@ -16,7 +26,7 @@ from providers.base import ProviderProfile
 
 neuralwatt = ProviderProfile(
     name="neuralwatt",
-    aliases=("neural-watt", "neuralwatt-ai"),
+    aliases=("neural", "neural-watt", "neuralwatt-ai"),
     display_name="Neuralwatt",
     description="Neuralwatt — GLM, Kimi, Qwen via OpenAI-compatible API",
     signup_url="https://portal.neuralwatt.com",
@@ -24,8 +34,9 @@ neuralwatt = ProviderProfile(
     base_url="https://api.neuralwatt.com/v1",
     models_url="https://api.neuralwatt.com/v1/models",
     default_aux_model="glm-5.2-fast",
-    # Best-effort fallback only; the live /v1/models endpoint above is the
-    # source of truth and overrides this list whenever it is reachable.
+    # Best-effort offline fallback only; the live /v1/models endpoint above is
+    # the source of truth and overrides this list whenever it is reachable.
+    # This is the public (unauthenticated) catalog — standard tiers, no flex.
     fallback_models=(
         "glm-5.2",
         "glm-5.2-fast",
