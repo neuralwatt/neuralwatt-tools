@@ -18,25 +18,31 @@ The installer creates `~/.hermes/` with `config.yaml`, `.env`, and the agent sou
 
 ## Setup
 
-Hermes treats any non-blessed OpenAI-compatible endpoint as a `custom` provider. Two small edits wire Neuralwatt in.
+Hermes discovers user-installed provider plugins from `~/.hermes/plugins/model-providers/<name>/`. This recipe ships a small Neuralwatt provider plugin (two files) that registers Neuralwatt as a first-class provider — so it appears in `hermes status` and the `/model` picker with the live model catalog, and uses its own `NEURALWATT_API_KEY` instead of hijacking the OpenAI environment variables.
 
-Edit `~/.hermes/config.yaml` and set the `model` block:
+Install the plugin:
+
+```bash
+mkdir -p ~/.hermes/plugins/model-providers/neuralwatt
+curl -fsSL https://raw.githubusercontent.com/neuralwatt/neuralwatt-tools/main/recipes/hermes/plugin/__init__.py \
+  -o ~/.hermes/plugins/model-providers/neuralwatt/__init__.py
+curl -fsSL https://raw.githubusercontent.com/neuralwatt/neuralwatt-tools/main/recipes/hermes/plugin/plugin.yaml \
+  -o ~/.hermes/plugins/model-providers/neuralwatt/plugin.yaml
+```
+
+Point Hermes at Neuralwatt in `~/.hermes/config.yaml`:
 
 ```yaml
 model:
-  default: "moonshotai/Kimi-K2.5"
-  provider: "custom"
-  base_url: "https://api.neuralwatt.com/v1"
+  default: glm-5.2
+  provider: neuralwatt
 ```
 
-Then append your key to `~/.hermes/.env`:
+Then add your key to `~/.hermes/.env`:
 
 ```bash
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://api.neuralwatt.com/v1
+NEURALWATT_API_KEY=your-api-key-here
 ```
-
-Hermes reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` when the provider is `custom`.
 
 Verify the install:
 
@@ -44,22 +50,26 @@ Verify the install:
 hermes doctor
 ```
 
+`hermes doctor` reports Neuralwatt as configured and probes `https://api.neuralwatt.com/v1/models`.
+
 ## Run
 
 ```bash
 hermes
 ```
 
-You can swap models mid-session with `/model <model-id>`. Hermes won't autocomplete the Neuralwatt catalog, so type the full model ID manually (for example `/model Qwen/Qwen3.5-397B-A17B-FP8`).
+You can swap models mid-session with `/model`. The picker autocompletes the Neuralwatt catalog, which the plugin live-fetches from `https://api.neuralwatt.com/v1/models` — so newly released models appear without any plugin update.
 
 ## Available Models
 
-Browse the full catalog at [portal.neuralwatt.com](https://portal.neuralwatt.com), or query the API directly:
+The `/model` picker lists the live catalog. To browse it outside Hermes, see [portal.neuralwatt.com](https://portal.neuralwatt.com) or query the API directly:
 
 ```bash
 curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
   https://api.neuralwatt.com/v1/models | jq '.data[].id'
 ```
+
+Model IDs are bare and lowercase (for example `glm-5.2`, `kimi-k2.7-code`, `qwen3.5-397b`).
 
 ## Messaging Gateway
 
