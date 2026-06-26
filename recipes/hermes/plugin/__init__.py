@@ -6,8 +6,11 @@ provider so it shows up in ``hermes status`` and the ``/model`` picker with a
 real model catalog, instead of an anonymous "Custom endpoint".
 
 Neuralwatt is OpenAI-compatible, so Hermes live-fetches the model *catalog*
-(the ``/model`` picker list) from ``models_url`` (``{base_url}/models``). The
-live API is the source of truth there, so the picker can't silently go stale.
+(the ``/model`` picker list) from ``{base_url}/models``. The live API is the
+source of truth there, so the picker can't silently go stale. We deliberately
+do not set ``models_url``: leaving it unset lets ``fetch_models()`` honor a
+``NEURALWATT_BASE_URL`` override (it derives the catalog endpoint from the
+effective base URL), so chat and the catalog can't point at different hosts.
 
 Two IDs are *not* covered by that live fetch and are pinned here / in the
 recipe README: ``default_aux_model`` below, and the README's ``config.yaml``
@@ -32,9 +35,8 @@ neuralwatt = ProviderProfile(
     signup_url="https://portal.neuralwatt.com",
     env_vars=("NEURALWATT_API_KEY", "NEURALWATT_BASE_URL"),
     base_url="https://api.neuralwatt.com/v1",
-    models_url="https://api.neuralwatt.com/v1/models",
     default_aux_model="glm-5.2-fast",
-    # Best-effort offline fallback only; the live /v1/models endpoint above is
+    # Best-effort offline fallback only; the live {base_url}/models endpoint is
     # the source of truth and overrides this list whenever it is reachable.
     # This is the public (unauthenticated) catalog — standard tiers, no flex.
     fallback_models=(
