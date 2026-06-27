@@ -69,7 +69,7 @@ curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
   https://api.neuralwatt.com/v1/models | jq '.data[].id'
 ```
 
-Model IDs are bare and lowercase (for example `glm-5.2`, `kimi-k2.7-code`, `qwen3.5-397b`).
+Most model IDs are bare and lowercase (for example `glm-5.2`, `kimi-k2.7-code`, `qwen3.5-397b`); a few are slash-form (for example `neuralwatt/kimi-k2.6-long`). Use the exact IDs returned by `/v1/models`.
 
 ## Messaging Gateway
 
