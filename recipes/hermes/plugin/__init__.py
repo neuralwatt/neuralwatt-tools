@@ -17,8 +17,9 @@ recipe README: ``default_aux_model`` below, and the README's ``config.yaml``
 ``model.default``. Both exist in the live catalog today; if either is ever
 retired upstream, refresh it here (aux) and in the README (default).
 
-``fallback_models`` is consulted only when ``models_url`` is unreachable. It is
-intentionally the public (unauthenticated) ``/v1/models`` set — the standard
+``fallback_models`` is consulted only when the live catalog fetch
+(``{base_url}/models``) is unreachable. It is intentionally the public
+(unauthenticated) ``/v1/models`` set — the standard
 tiers. Flex variants and any enrollment-gated models are deliberately omitted
 from this fallback; they still appear in the live picker for keys that can see
 them, so this gap is not drift to "fix".

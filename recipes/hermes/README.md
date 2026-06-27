@@ -44,6 +44,8 @@ Then add your key to `~/.hermes/.env`:
 NEURALWATT_API_KEY=your-api-key-here
 ```
 
+> **Upgrading from the old recipe?** Earlier versions of this guide pointed `OPENAI_API_KEY` and `OPENAI_BASE_URL` at Neuralwatt. Remove both from `~/.hermes/.env` — leaving `OPENAI_BASE_URL` set can misroute Hermes' OpenAI and OpenRouter fallbacks.
+
 Verify the install:
 
 ```bash
@@ -62,14 +64,14 @@ You can swap models mid-session with `/model`. The picker autocompletes the Neur
 
 ## Available Models
 
-The `/model` picker lists the live catalog. To browse it outside Hermes, see [portal.neuralwatt.com](https://portal.neuralwatt.com) or query the API directly:
+The `/model` picker lists the live catalog. To browse it outside Hermes, see [portal.neuralwatt.com](https://portal.neuralwatt.com) or query the API directly (the key lives in `~/.hermes/.env`, so `export NEURALWATT_API_KEY=...` in your shell first):
 
 ```bash
 curl -s -H "Authorization: Bearer $NEURALWATT_API_KEY" \
   https://api.neuralwatt.com/v1/models | jq '.data[].id'
 ```
 
-Most model IDs are bare and lowercase (for example `glm-5.2`, `kimi-k2.7-code`, `qwen3.5-397b`); a few are slash-form (for example `neuralwatt/kimi-k2.6-long`). Use the exact IDs returned by `/v1/models`.
+Model IDs are bare and lowercase (for example `glm-5.2`, `kimi-k2.7-code`, `qwen3.5-397b`). Use the exact IDs returned by `/v1/models` for your key.
 
 ## Messaging Gateway
 

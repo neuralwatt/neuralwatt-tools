@@ -1,5 +1,5 @@
 name: neuralwatt-provider
 kind: model-provider
 version: 1.0.0
-description: Neuralwatt
+description: Neuralwatt provider profile (GLM, Kimi, Qwen via OpenAI-compatible API)
 author: Neuralwatt
