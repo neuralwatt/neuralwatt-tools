@@ -67,7 +67,7 @@ else
   data=$(curl -s -H "Authorization: Bearer $api_key" \
     https://api.neuralwatt.com/v1/usage/energy 2>/dev/null)
 
-  if [[ -z "$data" ]] || ! echo "$data" | jq -e '.daily[0]' >/dev/null 2>&1; then
+  if [[ -z "$data" ]] || ! echo "$data" | jq -e '.totals' >/dev/null 2>&1; then
     echo "Error: Failed to fetch usage data" >&2
     exit 1
   fi
@@ -81,7 +81,7 @@ case "$FORMAT" in
     echo "$data"
     ;;
   tmux)
-    output=$(jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data")
+    output=$(jq -r '(.daily[0] // {requests: .totals.requests, energy_kwh: .totals.energy_kwh}) | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data")
     if [[ -n "$COLOR" ]]; then
       printf "\033[%sm%s\033[0m\n" "$COLOR" "$output"
     else
@@ -89,6 +89,6 @@ case "$FORMAT" in
     fi
     ;;
   human)
-    jq -r '.daily[0] | "Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
+    jq -r '(.daily[0] // {date: .period.end, requests: .totals.requests, energy_kwh: .totals.energy_kwh, energy_joules: .totals.energy_joules}) | "Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
     ;;
 esac
