@@ -98,9 +98,9 @@ beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nw-mcr-test-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome; // Windows homedir source
-  fs.mkdirSync(path.join(tmpHome, ".pi", "agent", "extensions"), {
-    recursive: true,
-  });
+  // tools#43: deliberately do NOT pre-create ~/.pi/agent/extensions/ — the
+  // extension must create it itself at module load, and every log assertion
+  // below depends on that.
   const mod = await import("./neuralwatt-mcr.ts");
   extDefault = mod.default as (pi: MockPi) => void;
 });
@@ -130,6 +130,26 @@ afterEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
   clearDualInstanceSentinel();
+});
+
+describe("2.5.3 log directory is created at module load (tools#43)", () => {
+  it("creates ~/.pi/agent/extensions/ on a fresh HOME", () => {
+    expect(fs.existsSync(path.dirname(logPath()))).toBe(true);
+  });
+
+  it("nwlog actually reaches disk on a fresh HOME", async () => {
+    // Before 2.5.3 this file could never exist on a fresh install: the
+    // directory was missing and appendFileSync's ENOENT was swallowed.
+    const pi = makeMockPi();
+    (await loadExtension())(pi);
+    const context = pi.handlers.get("context")!;
+    await context(
+      { messages: [{ type: "user" }] },
+      makeCtx("neuralwatt/glm-5.1-long"),
+    );
+    expect(fs.existsSync(logPath())).toBe(true);
+    expect(readLog()).toContain("no_session_fp");
+  });
 });
 
 describe("X-NW-Conversation-ID header wiring", () => {
@@ -404,7 +424,7 @@ describe("#44 dual-instance guard", () => {
     const sentinel = (globalThis as Record<string, unknown>)
       .__NEURALWATT_MCR_ACTIVE__ as Record<string, unknown>;
     expect(sentinel).toBeTruthy();
-    expect(sentinel.version).toBe("2.5.2");
+    expect(sentinel.version).toBe("2.5.3");
     expect(typeof sentinel.module).toBe("string");
     expect(typeof sentinel.ts).toBe("string");
     // 2.5.1: the claim carries an activation id (ownership for touch/release)
@@ -414,7 +434,7 @@ describe("#44 dual-instance guard", () => {
 
     // The wire-visible version (X-NW-MCR-Ext-Version env seed) matches the
     // bump, so prod can verify the rollout.
-    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.2");
+    expect(process.env.X_NW_MCR_EXT_VERSION).toBe("2.5.3");
   });
 
   it("second activation in the same process registers NOTHING and logs dual_instance_blocked", async () => {
@@ -439,8 +459,8 @@ describe("#44 dual-instance guard", () => {
         .find((l) => l.includes("dual_instance_blocked"));
       expect(blockedLine).toBeTruthy();
       const blocked = JSON.parse(blockedLine!);
-      expect(blocked.winner.version).toBe("2.5.2");
-      expect(blocked.loser.version).toBe("2.5.2");
+      expect(blocked.winner.version).toBe("2.5.3");
+      expect(blocked.loser.version).toBe("2.5.3");
 
       // …and on stderr (visible interactively).
       expect(errSpy).toHaveBeenCalled();
@@ -538,7 +558,7 @@ describe("2.5.1 dual-instance guard: stale-sentinel release (Nico false positive
     expect(stealLine).toBeTruthy();
     const steal = JSON.parse(stealLine!);
     expect(steal.prior.heartbeat_age_ms).toBeGreaterThan(30_000);
-    expect(steal.claimant.version).toBe("2.5.2");
+    expect(steal.claimant.version).toBe("2.5.3");
     expect(readLog()).not.toContain("dual_instance_blocked");
   });
 
