@@ -14,7 +14,7 @@ Copy-ready examples ship with this recipe: [`models.yml`](./models.yml) and [`co
 ## Prerequisites
 
 - [Neuralwatt API key](https://portal.neuralwatt.com)
-- Oh My Pi v14.5+ (this guide is verified against omp 18.0.11)
+- Oh My Pi **v18+** (verified against omp 18.0.11). Older releases predate the `task`/`tiny`/`advisor` roles, custom `@` role aliases, and the `xhigh`/`max` thinking levels used below.
 
 ## Install
 
@@ -104,7 +104,7 @@ Neuralwatt model ids encode the serving tier:
 |------|---------|
 | `<model>` | Standard serving tier: reasoning on, full context and effort range |
 | `<model>-fast` | Latency tier — thinking disabled server-side, or capped to a small fixed budget (Kimi K2.7 Code Fast). Cheapest energy per request |
-| `<model>-flex` | Discounted **async** tier — requests may be held server-side during peak until capacity opens; best-effort latency, billed at a reduced rate. Intended for overnight/batch agent work, not interactive use |
+| `<model>-flex` | Discounted **async** tier — requests may be held server-side during peak until capacity opens; best-effort latency, billed at a reduced rate. Intended for overnight/batch agent work, not interactive use. The catalog lists the *standard* per-token rate for flex ids; the discount is applied at billing |
 | `<model>-short` | GLM-5.2 200K pool with a bounded reasoning budget — faster, lower-energy serving for everyday coding under 200K tokens |
 | `*-flash` | A *model family*, not a tier: smaller/faster models built for cheap high-volume work (GLM-5.3 Flash, DeepSeek V4 Flash, DeepSeek V4.1 Flash) |
 
@@ -147,7 +147,7 @@ The cheap workhorses. All three are reasoning-capable, 1M-class context (V4.1 Fl
 
 `glm-5.3-flash` is the strongest general default of the three (native vision, 1M context, `low/high/max` reasoning). `deepseek-v4.1-flash` has the cheapest cache reads and native vision at a 256K window. `deepseek-v4-flash` is text-only but cheapest on output.
 
-> Flex variants (`glm-5.3-flash-flex`, `deepseek-v4-flash-flex`, …) are the same models on the discounted async tier. Never assign them to `default`, `smol`, `tiny`, or `advisor` — those roles sit on the interactive critical path and flex requests may be held under load.
+> Flex variants (`glm-5.3-flash-flex`, `deepseek-v4-flash-flex`, …) are the same models on the discounted async tier. The per-token rate reported by `/v1/models` — and therefore the `cost` block in [`models.yml`](./models.yml) — is the standard rate; the flex discount lands at billing, so omp's cost estimates for these ids are an upper bound. Never assign them to `default`, `smol`, `tiny`, or `advisor` — those roles sit on the interactive critical path and flex requests may be held under load.
 
 ## Model roles (advanced)
 

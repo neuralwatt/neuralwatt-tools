@@ -9,6 +9,10 @@
 # The live endpoint is the source of truth: GET https://api.neuralwatt.com/v1/models
 # reports ids, context limits, pricing, and capability flags per account.
 # Run `omp models refresh` after editing this file.
+#
+# `*-flex` entries carry the standard per-token rate reported by /v1/models.
+# Flex is the discounted async tier: the discount is applied at billing, not
+# published per model, so these figures are only an upper bound on the bill.
 
 providers:
   neuralwatt:
@@ -21,6 +25,9 @@ providers:
       # reasoning_effort on most models. Per-model overrides deep-merge on top.
       supportsDeveloperRole: false
       supportsReasoningEffort: true
+
+    # `cost` is per million tokens. `cacheWrite` is always 0 — Neuralwatt does
+    # not charge for cache writes.
 
     models:
       # ---- GLM family -------------------------------------------------------
