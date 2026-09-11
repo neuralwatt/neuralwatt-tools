@@ -83,10 +83,7 @@ Most AI tools support custom endpoints. Point them at Neuralwatt:
 ```python
 from openai import OpenAI
 
-client = OpenAI(
-    base_url="https://api.neuralwatt.com/v1",
-    api_key="your-api-key-here"
-)
+client = OpenAI(base_url="https://api.neuralwatt.com/v1", api_key="your-api-key-here")
 ```
 
 Or via environment variables:
