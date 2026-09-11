@@ -1,0 +1,54 @@
+# Oh My Pi settings for Neuralwatt.
+#
+# Copy to ~/.omp/agent/config.yml (global) or <project>/.omp/config.yml
+# (project-local; project wins over global). Restart omp after editing —
+# settings are cached per process.
+
+# Role -> model routing. Values are `provider/model-id` and may carry a
+# `:<thinking-level>` suffix. Bare ids use defaultThinkingLevel.
+modelRoles:
+  # Main interactive model.
+  default: neuralwatt/deepseek-v4.1-flash
+  # Architecture / multi-step planning.
+  plan: neuralwatt/glm-5.2:max
+  # Hardest reasoning (deep code analysis, gnarly debugging).
+  slow: neuralwatt/deepseek-v4-pro:max
+  # Delegated subagent work (task tool).
+  task: neuralwatt/glm-5.2-short:max
+  # Lightweight lookups, triage, and mechanical edits.
+  smol: neuralwatt/deepseek-v4-flash:off
+  # Session titles, memory writes, auto-thinking classification. Falls back to
+  # smol when unset.
+  tiny: neuralwatt/deepseek-v4-flash:off
+  # Image/vision input.
+  vision: neuralwatt/qwen-3.8-27b
+  # Passive per-turn reviewer (advisor runtime).
+  advisor: neuralwatt/glm-5.2:max
+  # Custom roles referenced by pinned task agents (agents/*.md `model:` field).
+  coder: neuralwatt/glm-5.2:max
+  reviewer: neuralwatt/qwen-3.8-27b
+
+# Applied when a model selector carries no `:<level>` suffix.
+defaultThinkingLevel: auto
+
+# Let the task tool pass coarse lo/med/hi effort hints to subagents.
+task:
+  enableEffort: true
+  agentModelOverrides:
+    sonic: neuralwatt/deepseek-v4-flash:off
+    task: "@task"
+
+advisor:
+  enabled: true
+
+skills:
+  # Extra skill directories omp should scan.
+  customDirectories:
+    - ~/src/neuralwatt-claude-skills
+
+compaction:
+  idleEnabled: true
+  idleTimeoutSeconds: 120
+
+retry:
+  maxRetries: 5

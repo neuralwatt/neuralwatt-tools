@@ -1,0 +1,238 @@
+# Oh My Pi model catalog for Neuralwatt.
+#
+# Copy to ~/.omp/agent/models.yml and export NEURALWATT_API_KEY.
+#
+# Neuralwatt is not in omp's built-in catalog, so this file is the entire
+# definition. `neuralwatt` is the provider id used in model selectors
+# (neuralwatt/<id>).
+#
+# The live endpoint is the source of truth: GET https://api.neuralwatt.com/v1/models
+# reports ids, context limits, pricing, and capability flags per account.
+# Run `omp models refresh` after editing this file.
+
+providers:
+  neuralwatt:
+    baseUrl: https://api.neuralwatt.com/v1
+    api: openai-completions
+    apiKey: NEURALWATT_API_KEY
+    authHeader: true
+    compat:
+      # Neuralwatt rejects the `developer` role (expects `system`) and accepts
+      # reasoning_effort on most models. Per-model overrides deep-merge on top.
+      supportsDeveloperRole: false
+      supportsReasoningEffort: true
+
+    models:
+      # ---- GLM family -------------------------------------------------------
+      - id: glm-5.3
+        name: GLM-5.3
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.3-flex
+        name: GLM-5.3 Flex
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2
+        name: GLM-5.2
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-fast
+        name: GLM-5.2 Fast
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-flex
+        name: GLM-5.2 Flex
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-short
+        name: GLM-5.2 Short
+        reasoning: true
+        input: [text]
+        contextWindow: 199984
+        maxTokens: 32000
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-short-fast
+        name: GLM-5.2 Short Fast
+        reasoning: true
+        input: [text]
+        contextWindow: 199984
+        maxTokens: 32000
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-short-flex
+        name: GLM-5.2 Short Flex
+        reasoning: true
+        input: [text]
+        contextWindow: 199984
+        maxTokens: 32000
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+      - id: glm-5.2-short-fast-flex
+        name: GLM-5.2 Short Fast Flex
+        reasoning: true
+        input: [text]
+        contextWindow: 199984
+        maxTokens: 32000
+        cost: { input: 1.45, output: 4.50, cacheRead: 0.145, cacheWrite: 0 }
+
+      # ---- GLM Flash (cheap, vision, 1M) ------------------------------------
+      - id: glm-5.3-flash
+        name: GLM-5.3 Flash
+        reasoning: true
+        input: [text, image]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 0.15, output: 0.50, cacheRead: 0.03, cacheWrite: 0 }
+      - id: glm-5.3-flash-flex
+        name: GLM-5.3 Flash Flex
+        reasoning: true
+        input: [text, image]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 0.15, output: 0.50, cacheRead: 0.03, cacheWrite: 0 }
+
+      # ---- DeepSeek family --------------------------------------------------
+      - id: deepseek-v4-pro
+        name: DeepSeek V4 Pro
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 393216
+        cost: { input: 1.00, output: 3.00, cacheRead: 0.10, cacheWrite: 0 }
+      - id: deepseek-v4-flash
+        name: DeepSeek V4 Flash
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 0.14, output: 0.28, cacheRead: 0.028, cacheWrite: 0 }
+      - id: deepseek-v4-flash-flex
+        name: DeepSeek V4 Flash Flex
+        reasoning: true
+        input: [text]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 0.14, output: 0.28, cacheRead: 0.028, cacheWrite: 0 }
+      - id: deepseek-v4.1-flash
+        name: DeepSeek V4.1 Flash
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.15, output: 0.60, cacheRead: 0.015, cacheWrite: 0 }
+
+      # ---- Kimi family ------------------------------------------------------
+      - id: kimi-k3
+        name: Kimi K3
+        reasoning: true
+        input: [text, image]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 0 }
+      - id: kimi-k3-fast
+        name: Kimi K3 Fast
+        reasoning: false
+        input: [text, image]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 0 }
+      - id: kimi-k3-flex
+        name: Kimi K3 Flex
+        reasoning: true
+        input: [text, image]
+        contextWindow: 1048560
+        maxTokens: 65536
+        cost: { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 0 }
+      - id: kimi-k2.7-code
+        name: Kimi K2.7 Code
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.95, output: 4.00, cacheRead: 0.095, cacheWrite: 0 }
+        compat:
+          # Endpoint reports reasoning_effort: false — reasoning is always on
+          # and cannot be dialed, so a :<level> suffix is not sent.
+          supportsReasoningEffort: false
+      - id: kimi-k2.7-code-fast
+        name: Kimi K2.7 Code Fast
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.95, output: 4.00, cacheRead: 0.095, cacheWrite: 0 }
+        compat:
+          supportsReasoningEffort: false
+      - id: kimi-k2.7-code-flex
+        name: Kimi K2.7 Code Flex
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.95, output: 4.00, cacheRead: 0.095, cacheWrite: 0 }
+        compat:
+          supportsReasoningEffort: false
+
+      # ---- Qwen / Gemma -----------------------------------------------------
+      - id: qwen-3.8-27b
+        name: Qwen3.8 27B
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.45, output: 3.20, cacheRead: 0.25, cacheWrite: 0 }
+      - id: qwen-3.8-27b-flex
+        name: Qwen3.8 27B Flex
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 65536
+        cost: { input: 0.45, output: 3.20, cacheRead: 0.25, cacheWrite: 0 }
+      - id: qwen3.6-35b
+        name: Qwen3.6 35B
+        reasoning: true
+        input: [text, image]
+        contextWindow: 131056
+        maxTokens: 32768
+        cost: { input: 0.29, output: 1.15, cacheRead: 0.029, cacheWrite: 0 }
+      - id: qwen3.6-35b-fast
+        name: Qwen3.6 35B Fast
+        reasoning: false
+        input: [text, image]
+        contextWindow: 131056
+        maxTokens: 32768
+        cost: { input: 0.29, output: 1.15, cacheRead: 0.029, cacheWrite: 0 }
+      - id: qwen3.6-35b-flex
+        name: Qwen3.6 35B Flex
+        reasoning: true
+        input: [text, image]
+        contextWindow: 131056
+        maxTokens: 32768
+        cost: { input: 0.29, output: 1.15, cacheRead: 0.029, cacheWrite: 0 }
+      - id: gemma-4-31b
+        name: Gemma 4 31B
+        reasoning: true
+        input: [text, image]
+        contextWindow: 262128
+        maxTokens: 16384
+        cost: { input: 0.144, output: 0.42, cacheRead: 0.0144, cacheWrite: 0 }
+      - id: nw-auto-energy
+        name: NW Auto Energy
+        reasoning: false
+        input: [text, image]
+        contextWindow: 131056
+        maxTokens: 32768
+        cost: { input: 0.29, output: 1.15, cacheRead: 0.029, cacheWrite: 0 }
