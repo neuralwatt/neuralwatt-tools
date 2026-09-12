@@ -139,10 +139,13 @@ def test_fetch_models_http_error(httpx_mock):
 **Parametrized Tests**:
 
 ```python
-@pytest.mark.parametrize("value,unit,expected", [
-    (1_500_000, "J", "1.50MJ"),
-    (45.2, "J", "45.20J"),
-])
+@pytest.mark.parametrize(
+    "value,unit,expected",
+    [
+        (1_500_000, "J", "1.50MJ"),
+        (45.2, "J", "45.20J"),
+    ],
+)
 def test_format_scaled(value, unit, expected):
     assert format_scaled(value, unit) == expected
 ```
