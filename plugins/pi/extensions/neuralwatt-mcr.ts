@@ -105,7 +105,15 @@ import { randomUUID } from "node:crypto";
 //           content-anchor fallback path (no conv-id) keeps the 3-user-message
 //           protection exactly as before. New `context_drop reason=convid_no_anchor`
 //           telemetry confirms single-prompt sessions now drop.
-const EXTENSION_VERSION = "2.5.2";
+//   2.5.3 — create the log directory at module load (tools#43). `nwlog`
+//           appends to ~/.pi/agent/extensions/neuralwatt-mcr.log inside a
+//           try/catch, but nothing created that directory on a fresh pi
+//           install, so every write failed with ENOENT and was swallowed —
+//           the extension never logged anything in production. The vitest
+//           rig pre-created the directory, which is why the tests never
+//           caught it. Best-effort mkdir, idempotent, wrapped in its own
+//           try/catch so a permission error cannot break extension load.
+const EXTENSION_VERSION = "2.5.3";
 
 // ── Provider definition (folded in from the former configs/models.json) ─────
 // Declaring the full provider config inline lets this extension be a
@@ -159,6 +167,15 @@ const LOG_FILE = path.join(
   "extensions",
   "neuralwatt-mcr.log",
 );
+
+// tools#43: appendFileSync does not create parent directories and pi does not
+// create ~/.pi/agent/extensions/ either, so without this every nwlog call on a
+// fresh install fails silently. Best-effort; nwlog is itself wrapped.
+try {
+  fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+} catch {
+  // permission error or similar — never break extension load over logging
+}
 
 function nwlog(event: string, data: Record<string, unknown> = {}): void {
   try {
