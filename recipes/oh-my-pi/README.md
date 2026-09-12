@@ -326,7 +326,7 @@ omp config get modelRoles      # confirm the role map loaded
 |---|---|
 | Neuralwatt models missing from `/model` | `models.yml` failed schema validation — omp falls back to built-in models and surfaces the error. Check YAML and restart (config is cached per process) |
 | Model present but not selectable | API key not resolvable in the launching shell. The `apiKey` value is treated as an env var name first, literal second |
-| Role change had no effect | Restart omp; `modelRoles` is read at startup |
+| Role change had no effect | Task/eval dispatches reload current global/project/overlay settings; retry the dispatch. Restart only when changing the already-running session's selected model |
 | `400` on a `:<level>` selector | The endpoint rejects that effort for the model. Check the `thinking` column from `omp models find`; models with `reasoning_effort: false` (Kimi K2.7 Code) must be used bare |
 | `omp models find <id>:max` returns nothing | Expected — `find` matches ids/names, not selectors |
 
