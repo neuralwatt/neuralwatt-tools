@@ -98,11 +98,9 @@ beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nw-mcr-test-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome; // Windows homedir source
-  fs.mkdirSync(path.join(tmpHome, ".pi", "agent", "extensions"), {
-    recursive: true,
-  });
   const mod = await import("./neuralwatt-mcr.ts");
   extDefault = mod.default as (pi: MockPi) => void;
+  expect(fs.existsSync(path.dirname(logPath()))).toBe(true);
 });
 
 // tools#44: the dual-instance guard claims a process-global sentinel on
