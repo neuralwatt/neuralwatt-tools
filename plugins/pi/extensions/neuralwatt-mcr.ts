@@ -160,6 +160,12 @@ const LOG_FILE = path.join(
   "neuralwatt-mcr.log",
 );
 
+try {
+  fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+} catch {
+  // best-effort; nwlog itself is wrapped in try/catch
+}
+
 function nwlog(event: string, data: Record<string, unknown> = {}): void {
   try {
     const line =
