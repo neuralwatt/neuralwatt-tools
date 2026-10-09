@@ -3,92 +3,245 @@
 #
 # Usage:
 #   nw-usage                       # Human-readable output (always fresh)
-#   nw-usage --tmux                # Compact for tmux/statusline (cached 5min)
+#   nw-usage --tmux                # Compact for tmux/statusline (cached 3 min)
 #   nw-usage --tmux --color '1;32' # With ANSI color (bright green)
-#   nw-usage --json                # Raw JSON (always fresh)
+#   nw-usage --json                # Raw JSON response (always fresh)
+#
+# Statusline behavior:
+#   --tmux is intentionally fail-safe:
+#   - never outputs errors to stderr
+#   - never returns a non-zero exit code
+#   - never presents stale data as current
+#   - invalidates the cache when the calendar date changes
+#   - shows unknown values when current data cannot be determined
 
 set -euo pipefail
 
-CACHE_FILE="/tmp/nw-usage-cache.json"
-CACHE_MAX_AGE=60  # 5 minutes
+CACHE_FILE="${TMPDIR:-/tmp}/nw-usage-cache.json"
+CACHE_MAX_AGE=180  # 3 minutes
 API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
+API_URL="https://api.neuralwatt.com/v1/usage/energy"
 
-# Parse args
 FORMAT="human"
 USE_CACHE=false
 COLOR=""
+
+# Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --tmux) FORMAT="tmux"; USE_CACHE=true; shift ;;
-    --json) FORMAT="json"; shift ;;
+    --tmux)
+      FORMAT="tmux"
+      USE_CACHE=true
+      shift
+      ;;
+    --json)
+      FORMAT="json"
+      shift
+      ;;
     --color)
-      COLOR="${2:-}"
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --color requires an ANSI color code" >&2
+        exit 1
+      fi
+      COLOR="$2"
       shift 2
       ;;
     --help|-h)
-      echo "Usage: nw-usage [--tmux|--json] [--color CODE]"
-      echo "  --tmux        Compact output for statusline (cached)"
-      echo "  --json        Raw JSON from API"
-      echo "  --color CODE  ANSI color code (e.g., '1;32' for bright green)"
+      cat <<'EOF'
+Usage: nw-usage [--tmux|--json] [--color CODE]
+
+  --tmux        Compact output for statusline (cached 5 min)
+  --json        Raw JSON from API
+  --color CODE  ANSI color code (e.g. '1;32' for bright green)
+EOF
       exit 0
       ;;
-    *) echo "Unknown option: $1"; exit 1 ;;
+    *)
+      echo "Error: Unknown option: $1" >&2
+      exit 1
+      ;;
   esac
 done
 
-# Check cache freshness (only for --tmux)
-use_cache=false
-if [[ "$USE_CACHE" == "true" ]] && [[ -f "$CACHE_FILE" ]]; then
-  if [[ "$(uname)" == "Darwin" ]]; then
-    cache_mtime=$(stat -f %m "$CACHE_FILE")
+# Fail-safe output for tmux / Claude Code statuslines.
+# Never writes to stderr and always exits successfully.
+tmux_unknown() {
+  local output="NW · ? req · ? Wh"
+
+  if [[ -n "$COLOR" ]]; then
+    printf '\033[%sm%s\033[0m\n' "$COLOR" "$output"
   else
-    cache_mtime=$(stat -c %Y "$CACHE_FILE")
+    printf '%s\n' "$output"
   fi
+
+  exit 0
+}
+
+# Required commands
+for command in curl jq; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    if [[ "$FORMAT" == "tmux" ]]; then
+      tmux_unknown
+    fi
+
+    echo "Error: Required command not found: $command" >&2
+    exit 1
+  fi
+done
+
+TODAY=$(date +%F)
+
+# Check cache freshness
+use_cache=false
+
+if [[ "$USE_CACHE" == "true" && -f "$CACHE_FILE" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    cache_mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)
+  else
+    cache_mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+  fi
+
   cache_age=$(($(date +%s) - cache_mtime))
-  if [[ $cache_age -lt $CACHE_MAX_AGE ]]; then
+
+  # Cache must also belong to the current calendar day.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    cache_date=$(date -r "$cache_mtime" +%F 2>/dev/null || echo "")
+  else
+    cache_date=$(date -d "@$cache_mtime" +%F 2>/dev/null || echo "")
+  fi
+
+  # Only use the cache if:
+  # 1. it is fresh
+  # 2. it was written today
+  # 3. it contains a valid successful API response
+  #
+  # daily is allowed to be empty.
+  if (( cache_age >= 0 && cache_age < CACHE_MAX_AGE )) \
+    && [[ "$cache_date" == "$TODAY" ]] \
+    && jq -e '
+      (.totals | type == "object") and
+      (.daily | type == "array")
+    ' "$CACHE_FILE" >/dev/null 2>&1; then
     use_cache=true
   fi
 fi
 
-# Get data (from cache or API)
+# Get data
 if [[ "$use_cache" == "true" ]]; then
-  data=$(cat "$CACHE_FILE")
+  data=$(<"$CACHE_FILE")
 else
   # Get API key
   if [[ -n "${NEURALWATT_API_KEY:-}" ]]; then
     api_key="$NEURALWATT_API_KEY"
   elif [[ -f "$API_KEY_FILE" ]]; then
-    api_key=$(cat "$API_KEY_FILE")
+    api_key=$(tr -d '\r\n' < "$API_KEY_FILE")
   else
+    if [[ "$FORMAT" == "tmux" ]]; then
+      tmux_unknown
+    fi
+
     echo "Error: No API key found. Set NEURALWATT_API_KEY or create $API_KEY_FILE" >&2
     exit 1
   fi
 
-  data=$(curl -s -H "Authorization: Bearer $api_key" \
-    https://api.neuralwatt.com/v1/usage/energy 2>/dev/null)
+  if [[ -z "$api_key" ]]; then
+    if [[ "$FORMAT" == "tmux" ]]; then
+      tmux_unknown
+    fi
 
-  if [[ -z "$data" ]] || ! echo "$data" | jq -e '.daily[0]' >/dev/null 2>&1; then
+    echo "Error: API key is empty" >&2
+    exit 1
+  fi
+
+  # Short timeouts are intentional:
+  # a statusline should never block noticeably if the API is unavailable.
+  if ! data=$(
+    curl -fsS \
+      --connect-timeout 2 \
+      --max-time 3 \
+      -H "Authorization: Bearer $api_key" \
+      "$API_URL" \
+      2>/dev/null
+  ); then
+    if [[ "$FORMAT" == "tmux" ]]; then
+      tmux_unknown
+    fi
+
     echo "Error: Failed to fetch usage data" >&2
     exit 1
   fi
 
-  echo "$data" > "$CACHE_FILE"
+  # Validate successful API response.
+  # daily: [] is valid when the account has no usage yet.
+  if ! jq -e '
+    (.totals | type == "object") and
+    (.daily | type == "array")
+  ' <<< "$data" >/dev/null 2>&1; then
+    if [[ "$FORMAT" == "tmux" ]]; then
+      tmux_unknown
+    fi
+
+    echo "Error: Invalid API response" >&2
+    exit 1
+  fi
+
+  # Write cache atomically.
+  # Failure to write the cache should not fail an otherwise successful request.
+  tmp_cache="${CACHE_FILE}.$$"
+
+  if printf '%s\n' "$data" > "$tmp_cache" 2>/dev/null; then
+    mv "$tmp_cache" "$CACHE_FILE" 2>/dev/null || rm -f "$tmp_cache"
+  else
+    rm -f "$tmp_cache"
+  fi
 fi
 
 # Format output
 case "$FORMAT" in
   json)
-    echo "$data"
+    printf '%s\n' "$data"
     ;;
+
   tmux)
-    output=$(jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data")
+    # Explicitly select today's entry.
+    #
+    # If there is no entry for today, today's usage is zero.
+    # Never fall back to .totals, because totals cover the whole API period
+    # and would therefore be misleading in a "today" statusline.
+    if ! output=$(
+      jq -r --arg today "$TODAY" '
+        ([.daily[] | select(.date == $today)][0] //
+          {
+            requests: 0,
+            energy_kwh: 0
+          }
+        )
+        | "NW · \(.requests) req · \(.energy_kwh * 1000 | round) Wh"
+      ' <<< "$data" 2>/dev/null
+    ); then
+      tmux_unknown
+    fi
+
     if [[ -n "$COLOR" ]]; then
-      printf "\033[%sm%s\033[0m\n" "$COLOR" "$output"
+      printf '\033[%sm%s\033[0m\n' "$COLOR" "$output"
     else
-      echo "$output"
+      printf '%s\n' "$output"
     fi
     ;;
+
   human)
-    jq -r '.daily[0] | "Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
+    jq -r --arg today "$TODAY" '
+      ([.daily[] | select(.date == $today)][0] //
+        {
+          date: $today,
+          requests: 0,
+          energy_kwh: 0,
+          energy_joules: 0
+        }
+      )
+      | "Neuralwatt Usage for \(.date)
+  Requests: \(.requests)
+  Energy: \(.energy_kwh * 1000 | round) Wh (\(.energy_joules | round) J)"
+    ' <<< "$data"
     ;;
 esac
