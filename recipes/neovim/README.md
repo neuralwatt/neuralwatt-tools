@@ -61,7 +61,7 @@ vim.keymap.set('n', '<leader>nm', ':NeuralwattMini<CR>', { desc = 'Neuralwatt mi
 
 ## AI Completions
 
-Neuralwatt serves the OpenAI Chat Completions API, so any Neovim plugin that can use an OpenAI-compatible provider can use Neuralwatt. For [codecompanion.nvim](https://github.com/olimorris/codecompanion.nvim), extend its `openai_compatible` adapter:
+Neuralwatt serves the OpenAI Chat Completions API, so any Neovim plugin that can use an OpenAI-compatible provider can use Neuralwatt. For [codecompanion.nvim](https://github.com/olimorris/codecompanion.nvim), extend its `openai_compatible` adapter. This config needs codecompanion v18.0.0 or later, the release that renamed `strategies` to `interactions`.
 
 ```lua
 require("codecompanion").setup({

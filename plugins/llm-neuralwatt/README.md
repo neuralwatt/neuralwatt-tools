@@ -35,7 +35,7 @@ The plugin also reads `NEURALWATT_API_KEY` from the environment. A key saved wit
 
 ## Available Models
 
-The plugin reads the Neuralwatt model list each time `llm` starts. Run `llm models | grep neuralwatt` to see what's available. Each name is `neuralwatt-` plus the API model ID in lowercase, so `kimi-k3.1-pro` becomes `neuralwatt-kimi-k3.1-pro` and the tracking alias `nw-flash` becomes `neuralwatt-nw-flash`. The [model catalog](https://portal.neuralwatt.com/models) describes each model, and [Tracking Aliases](https://docs.neuralwatt.com/guides/tracking-aliases) explains names like `nw-flash`.
+The plugin reads the Neuralwatt model list each time `llm` starts. Run `llm models | grep neuralwatt` to see what's available. Each name is `neuralwatt-` plus the API model ID, with any organization prefix before the first `/` dropped, letters lowercased, and underscores and spaces turned into hyphens. So `kimi-k3.1-pro` becomes `neuralwatt-kimi-k3.1-pro`, the tracking alias `nw-flash` becomes `neuralwatt-nw-flash`, and an ID like `meta-llama/Llama-3-70B-Instruct` would become `neuralwatt-llama-3-70b-instruct`. The [model catalog](https://portal.neuralwatt.com/models) describes each model, and [Tracking Aliases](https://docs.neuralwatt.com/guides/tracking-aliases) explains names like `nw-flash`.
 
 If the model list can't be read (no key set, network down), the plugin registers the three tracking aliases instead: `neuralwatt-nw-large`, `neuralwatt-nw-flash` and `neuralwatt-nw-small`.
 

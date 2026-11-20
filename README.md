@@ -17,7 +17,7 @@ Setup guides for coding agents and chat apps (Claude Code, OpenCode, Codex, Herm
 
 The API serves OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so it works with most tools that let you set a custom base URL.
 
-Every response also reports the energy the request used, alongside the standard token counts:
+When a measurement is available, each response also includes an `energy` block with the energy the request used, alongside the standard token counts:
 
 ```json
 {
