@@ -2,13 +2,17 @@
 
 This repository contains tools, plugins, and recipes for the Neuralwatt inference API.
 
+Setup guides for third-party tools (coding agents, chat apps) live on the docs site at https://docs.neuralwatt.com/integrations/overview, not here. Most directories under `recipes/` are short pointers to those pages. Add a new tool's setup guide to the docs site rather than as a recipe here.
+
+The docs site installs `scripts/nw-usage` from its raw GitHub URL on `main` and the llm plugin from `plugins/llm-neuralwatt`, so moving or renaming either breaks those pages.
+
 ## Project Structure
 
 ```
 neuralwatt-tools/
 ├── plugins/llm-neuralwatt/   # Python pip-installable LLM plugin
 ├── scripts/                   # Shell scripts (nw-usage)
-├── recipes/                   # Configuration guides for various tools
+├── recipes/                   # Neovim and tmux recipes, plus pointers to the docs site
 └── .github/workflows/         # CI configuration
 ```
 
@@ -45,7 +49,8 @@ ruff check --fix . && ruff format .
 ### Shell Scripts
 
 ```bash
-shellcheck scripts/*
+shellcheck scripts/nw-usage scripts/install-nw-usage scripts/tests/*.sh
+scripts/tests/test-scripts.sh   # offline tests with a fake curl and a temp HOME
 ```
 
 ---
@@ -165,6 +170,7 @@ CI runs on push to main and PRs:
 1. **test**: pytest on Python 3.10, 3.11, 3.12, 3.13
 2. **lint**: `ruff check` and `ruff format --check`
 3. **shellcheck**: Lints shell scripts in `scripts/`
+4. **script-tests**: Runs `scripts/tests/test-scripts.sh`
 
 ---
 

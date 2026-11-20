@@ -3,14 +3,14 @@
 #
 # Usage:
 #   nw-usage                       # Human-readable output (always fresh)
-#   nw-usage --tmux                # Compact for tmux/statusline (cached 5min)
+#   nw-usage --tmux                # Compact for tmux/statusline (cached 1 min)
 #   nw-usage --tmux --color '1;32' # With ANSI color (bright green)
 #   nw-usage --json                # Raw JSON (always fresh)
 
 set -euo pipefail
 
-CACHE_FILE="/tmp/nw-usage-cache.json"
-CACHE_MAX_AGE=60  # 5 minutes
+CACHE_FILE="${NW_USAGE_CACHE_FILE:-/tmp/nw-usage-cache.json}"
+CACHE_MAX_AGE=60  # seconds
 API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
 
 # Parse args
@@ -67,28 +67,36 @@ else
   data=$(curl -s -H "Authorization: Bearer $api_key" \
     https://api.neuralwatt.com/v1/usage/energy 2>/dev/null)
 
-  if [[ -z "$data" ]] || ! echo "$data" | jq -e '.daily[0]' >/dev/null 2>&1; then
+  # A day with no requests has no row, so an empty daily list is valid.
+  if [[ -z "$data" ]] || ! jq -e '.daily | type == "array"' >/dev/null 2>&1 <<< "$data"; then
     echo "Error: Failed to fetch usage data" >&2
     exit 1
   fi
 
-  echo "$data" > "$CACHE_FILE"
+  printf '%s\n' "$data" > "$CACHE_FILE"
 fi
+
+# The API groups usage by UTC day and lists only days with requests, so pick
+# today's row by date and fall back to zeros before the first request of the day.
+today=$(date -u +%Y-%m-%d)
+today_row=$(jq -c --arg today "$today" \
+  'first(.daily[] | select(.date == $today)) // {date: $today, requests: 0, energy_kwh: 0, energy_joules: 0}' \
+  <<< "$data")
 
 # Format output
 case "$FORMAT" in
   json)
-    echo "$data"
+    printf '%s\n' "$data"
     ;;
   tmux)
-    output=$(jq -r '.daily[0] | "↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$data")
+    output=$(jq -r '"↗\(.requests) ⚡\(.energy_kwh * 1000 | round)Wh"' <<< "$today_row")
     if [[ -n "$COLOR" ]]; then
       printf "\033[%sm%s\033[0m\n" "$COLOR" "$output"
     else
-      echo "$output"
+      printf '%s\n' "$output"
     fi
     ;;
   human)
-    jq -r '.daily[0] | "Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$data"
+    jq -r '"Neuralwatt Usage for \(.date)\n  Requests: \(.requests)\n  Energy: \(.energy_kwh * 1000 | round)Wh (\(.energy_joules | round)J)"' <<< "$today_row"
     ;;
 esac

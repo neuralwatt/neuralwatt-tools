@@ -4,15 +4,17 @@ A plugin for [LLM](https://llm.datasette.io/) that adds support for [Neuralwatt]
 
 ![llm chat with energy metrics](../../images/llm-chat-energy.png)
 
-This plugin captures the energy consumption metadata that Neuralwatt returns with each inference request, storing it in LLM's log database alongside token usage.
+This plugin captures the energy consumption metadata that Neuralwatt returns with each inference request, storing it in LLM's log database alongside token usage. The [LLM plugin page](https://docs.neuralwatt.com/integrations/llm-plugin) in the Neuralwatt docs covers the same setup.
 
 ## Installation
 
 Install directly from GitHub:
 
 ```bash
-llm install "llm-neuralwatt @ git+https://github.com/neuralwatt/neuralwatt-tools.git#subdirectory=plugins/llm-neuralwatt"
+llm install 'git+https://github.com/neuralwatt/neuralwatt-tools#subdirectory=plugins/llm-neuralwatt'
 ```
+
+Don't run `llm install llm-neuralwatt`. That installs an older third-party plugin from PyPI whose models no longer exist.
 
 Or install from a local clone (run from the repo root):
 
@@ -29,16 +31,18 @@ llm keys set neuralwatt
 # paste your API key
 ```
 
+The plugin also reads `NEURALWATT_API_KEY` from the environment. A key saved with `llm keys set` takes precedence.
+
 ## Available Models
 
-Models are discovered automatically from the Neuralwatt API at startup. Run `llm models | grep neuralwatt` to see what's available. Model IDs are derived from the API names, e.g. `Qwen/Qwen3.5-397B-A17B-FP8` becomes `neuralwatt-qwen3.5-397b-a17b-fp8`.
+The plugin reads the Neuralwatt model list each time `llm` starts. Run `llm models | grep neuralwatt` to see what's available. Each name is `neuralwatt-` plus the API model ID, with any organization prefix before the first `/` dropped, letters lowercased, and underscores and spaces turned into hyphens. So `kimi-k3.1-pro` becomes `neuralwatt-kimi-k3.1-pro`, the tracking alias `nw-flash` becomes `neuralwatt-nw-flash`, and an ID like `meta-llama/Llama-3-70B-Instruct` would become `neuralwatt-llama-3-70b-instruct`. The [model catalog](https://portal.neuralwatt.com/models) describes each model, and [Tracking Aliases](https://docs.neuralwatt.com/guides/tracking-aliases) explains names like `nw-flash`.
 
-If the API is unreachable (no key set, network down), a small set of fallback models is registered instead.
+If the model list can't be read (no key set, network down), the plugin registers the three tracking aliases instead: `neuralwatt-nw-large`, `neuralwatt-nw-flash` and `neuralwatt-nw-small`.
 
 ## Usage
 
 ```bash
-llm -m neuralwatt-qwen3.5-397b-a17b-fp8 "Explain what a monad is"
+llm -m neuralwatt-nw-flash "Explain what a monad is"
 ```
 
 ### Show Energy After Response
@@ -46,7 +50,7 @@ llm -m neuralwatt-qwen3.5-397b-a17b-fp8 "Explain what a monad is"
 Pass `-o show_energy true` to print energy and performance stats after each response:
 
 ```bash
-llm -m neuralwatt-qwen3.5-397b-a17b-fp8 "What is a closure?" -o show_energy true
+llm -m neuralwatt-nw-flash "What is a closure?" -o show_energy true
 ```
 
 ```
@@ -60,7 +64,7 @@ A closure is a function that captures variables from its enclosing scope...
 Energy is shown after each assistant message:
 
 ```bash
-llm chat -m neuralwatt-kimi-k2.5 -o show_energy true
+llm chat -m neuralwatt-kimi-k3.1-pro -o show_energy true
 ```
 
 ```

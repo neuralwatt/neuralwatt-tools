@@ -47,18 +47,9 @@ jobs:
         with:
           scandir: scripts/
 
-  pi-ext-test:
+  script-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: plugins/pi/package-lock.json
-      - name: Install dependencies
-        working-directory: plugins/pi
-        run: npm ci
-      - name: Run pi MCR extension tests
-        working-directory: plugins/pi
-        run: npm test
+      - name: Run nw-usage and install-nw-usage tests
+        run: scripts/tests/test-scripts.sh

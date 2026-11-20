@@ -24,11 +24,13 @@ USER_AGENT = "llm-neuralwatt/0.1.0"
 TIMEOUT_SECONDS = 300.0
 DISCOVERY_TIMEOUT_SECONDS = 5.0
 
-# Fallback models used when the /v1/models endpoint is unreachable.
+# Fallback models used when the /v1/models endpoint is unreachable. These are
+# tracking aliases, which Neuralwatt moves to a newer model when one ships, so
+# the names keep working as the catalog changes.
 FALLBACK_MODELS = {
-    "neuralwatt-qwen": "Qwen/Qwen3.5-397B-A17B-FP8",
-    "neuralwatt-kimi": "moonshotai/Kimi-K2.5",
-    "neuralwatt-gpt-oss": "openai/gpt-oss-20b",
+    "neuralwatt-nw-large": "nw-large",
+    "neuralwatt-nw-flash": "nw-flash",
+    "neuralwatt-nw-small": "nw-small",
 }
 
 
@@ -36,9 +38,8 @@ def model_id_from_name(api_model_id: str) -> str:
     """Derive a short llm model ID from a Neuralwatt API model name.
 
     Examples:
-        "Qwen/Qwen3.5-397B-A17B-FP8" -> "neuralwatt-qwen3.5-397b-a17b-fp8"
-        "moonshotai/Kimi-K2.5" -> "neuralwatt-kimi-k2.5"
-        "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
+        "kimi-k3.1-pro" -> "neuralwatt-kimi-k3.1-pro"
+        "nw-flash" -> "neuralwatt-nw-flash"
         "meta-llama/Llama-3-70B-Instruct" -> "neuralwatt-llama-3-70b-instruct"
     """
     # Use the part after the org prefix (or the whole string if no slash).
@@ -51,7 +52,9 @@ def model_id_from_name(api_model_id: str) -> str:
 def fetch_models(api_key: str) -> dict[str, str]:
     """Fetch available models from the Neuralwatt /v1/models endpoint.
 
-    Returns a dict mapping llm model IDs to API model names.
+    Returns a dict mapping llm model IDs to API model names. Raises
+    httpx.HTTPError for request failures and ValueError for a response that
+    isn't a model list.
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -61,11 +64,20 @@ def fetch_models(api_key: str) -> dict[str, str]:
         r = client.get(f"{API_BASE}/models", headers=headers)
         r.raise_for_status()
 
+    try:
+        payload = r.json()
+    except ValueError as exc:
+        raise ValueError(f"response is not JSON: {exc}") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise ValueError("response has no 'data' list")
+
     models = {}
-    for entry in r.json().get("data", []):
+    for entry in data:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            raise ValueError(f"model entry has no string 'id': {entry!r}")
         api_name = entry["id"]
-        model_id = model_id_from_name(api_name)
-        models[model_id] = api_name
+        models[model_id_from_name(api_name)] = api_name
     return models
 
 
@@ -357,8 +369,12 @@ def register_models(register):
                 "Neuralwatt model discovery failed (HTTP %s). Using fallback models.",
                 exc.response.status_code,
             )
-        except (httpx.ConnectError, httpx.TimeoutException):
-            logger.debug("Neuralwatt API unreachable. Using fallback models.")
+        except (httpx.RequestError, ValueError) as exc:
+            logger.warning(
+                "Neuralwatt model discovery failed (%s: %s). Using fallback models.",
+                type(exc).__name__,
+                exc,
+            )
 
     if not models:
         models = FALLBACK_MODELS

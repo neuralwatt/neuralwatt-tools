@@ -174,14 +174,10 @@ def test_compute_perf_zero_duration():
 @pytest.mark.parametrize(
     "api_id,expected",
     [
-        ("Qwen/Qwen3.5-397B-A17B-FP8", "neuralwatt-qwen3.5-397b-a17b-fp8"),
-        ("moonshotai/Kimi-K2.5", "neuralwatt-kimi-k2.5"),
-        ("openai/gpt-oss-20b", "neuralwatt-gpt-oss-20b"),
-        (
-            "mistralai/Devstral-Small-2-24B-Instruct-2512",
-            "neuralwatt-devstral-small-2-24b-instruct-2512",
-        ),
-        ("Qwen/Qwen3.5-35B-A3B", "neuralwatt-qwen3.5-35b-a3b"),
+        ("kimi-k3.1-pro", "neuralwatt-kimi-k3.1-pro"),
+        ("nw-flash", "neuralwatt-nw-flash"),
+        ("deepseek-v4.1-flash-flex", "neuralwatt-deepseek-v4.1-flash-flex"),
+        ("meta-llama/Llama-3-70B-Instruct", "neuralwatt-llama-3-70b-instruct"),
         ("some-model-chat", "neuralwatt-some-model-chat"),
         ("org/Model_Name-Base", "neuralwatt-model-name-base"),
     ],
@@ -201,17 +197,17 @@ def test_fetch_models_success(httpx_mock):
         json={
             "object": "list",
             "data": [
-                {"id": "Qwen/Qwen3.5-397B-A17B-FP8", "object": "model"},
-                {"id": "moonshotai/Kimi-K2.5", "object": "model"},
+                {"id": "kimi-k3.1-pro", "object": "model"},
+                {"id": "nw-flash", "object": "model"},
             ],
         },
     )
 
     models = fetch_models("test-key")
     assert len(models) == 2
-    assert "neuralwatt-qwen3.5-397b-a17b-fp8" in models
-    assert models["neuralwatt-qwen3.5-397b-a17b-fp8"] == "Qwen/Qwen3.5-397B-A17B-FP8"
-    assert "neuralwatt-kimi-k2.5" in models
+    assert "neuralwatt-kimi-k3.1-pro" in models
+    assert models["neuralwatt-kimi-k3.1-pro"] == "kimi-k3.1-pro"
+    assert "neuralwatt-nw-flash" in models
 
 
 def test_fetch_models_http_error(httpx_mock):
@@ -237,8 +233,8 @@ def test_register_models_dynamic(httpx_mock):
         json={
             "object": "list",
             "data": [
-                {"id": "Qwen/Qwen3.5-397B-A17B-FP8", "object": "model"},
-                {"id": "moonshotai/Kimi-K2.5", "object": "model"},
+                {"id": "kimi-k3.1-pro", "object": "model"},
+                {"id": "nw-flash", "object": "model"},
             ],
         },
     )
@@ -248,8 +244,8 @@ def test_register_models_dynamic(httpx_mock):
         register_models(registered.append)
 
     model_ids = {m.model_id for m in registered}
-    assert "neuralwatt-qwen3.5-397b-a17b-fp8" in model_ids
-    assert "neuralwatt-kimi-k2.5" in model_ids
+    assert "neuralwatt-kimi-k3.1-pro" in model_ids
+    assert "neuralwatt-nw-flash" in model_ids
 
 
 def test_register_models_fallback_on_no_key():
@@ -315,12 +311,65 @@ def test_register_models_fallback_on_auth_error(caplog):
     assert "HTTP 401" in caplog.text
 
 
+def test_register_models_fallback_on_read_error(httpx_mock, caplog):
+    """Falls back with a warning when the connection drops mid-request."""
+    httpx_mock.add_exception(
+        httpx.ReadError("connection reset"),
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+    )
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value="test-key"):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+    assert "ReadError" in caplog.text
+
+
+def test_register_models_fallback_on_non_json_body(httpx_mock, caplog):
+    """Falls back with a warning when a 200 response isn't JSON (e.g. a captive portal)."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        text="<html>Sign in to the network</html>",
+    )
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value="test-key"):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+    assert "not JSON" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"object": "list"},
+        {"data": {"id": "nw-flash"}},
+        {"data": [{"object": "model"}]},
+        [{"id": "nw-flash"}],
+    ],
+)
+def test_fetch_models_rejects_bad_shape(httpx_mock, body):
+    """fetch_models raises ValueError for a response that isn't a model list."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        json=body,
+    )
+
+    with pytest.raises(ValueError):
+        fetch_models("test-key")
+
+
 def test_model_attributes():
     """Verify model has correct attributes."""
-    model = NeuralwattChat("neuralwatt-qwen", "Qwen/Qwen3.5-397B-A17B-FP8")
+    model = NeuralwattChat("neuralwatt-kimi-k3.1-pro", "kimi-k3.1-pro")
 
-    assert model.model_id == "neuralwatt-qwen"
-    assert model._model_name == "Qwen/Qwen3.5-397B-A17B-FP8"
+    assert model.model_id == "neuralwatt-kimi-k3.1-pro"
+    assert model._model_name == "kimi-k3.1-pro"
     assert model.needs_key == "neuralwatt"
     assert model.can_stream is True
 

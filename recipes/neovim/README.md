@@ -22,7 +22,15 @@ cp energy-monitor.lua ~/.config/nvim/lua/neuralwatt/init.lua
 
 ### Setup
 
-Add to your Neovim config (e.g., `init.lua`):
+Create the API key file. [`nw-usage`](../../scripts/) reads the same file.
+
+```bash
+mkdir -p ~/.config/neuralwatt
+echo "your-api-key-here" > ~/.config/neuralwatt/api_key
+chmod 600 ~/.config/neuralwatt/api_key
+```
+
+Add to your Neovim config (e.g., `init.lua`). These are the defaults, so `require("neuralwatt").setup()` does the same:
 
 ```lua
 require("neuralwatt").setup({
@@ -32,12 +40,7 @@ require("neuralwatt").setup({
 })
 ```
 
-Create the API key file:
-
-```bash
-mkdir -p ~/.config/neuralwatt
-echo "your-api-key-here" > ~/.config/neuralwatt/api_key
-```
+The monitor shows three figures: usage since Neovim started, today, and the last 30 days. "Today" is the current UTC day, because the usage API groups requests by UTC day.
 
 ### Commands
 
@@ -58,65 +61,39 @@ vim.keymap.set('n', '<leader>nm', ':NeuralwattMini<CR>', { desc = 'Neuralwatt mi
 
 ## AI Completions
 
-Neuralwatt is OpenAI-compatible, so any Neovim plugin that supports OpenAI can use it.
-
-### codecompanion.nvim
+Neuralwatt serves the OpenAI Chat Completions API, so any Neovim plugin that can use an OpenAI-compatible provider can use Neuralwatt. For [codecompanion.nvim](https://github.com/olimorris/codecompanion.nvim), extend its `openai_compatible` adapter. This config needs codecompanion v18.0.0 or later, the release that renamed `strategies` to `interactions`.
 
 ```lua
 require("codecompanion").setup({
   adapters = {
-    neuralwatt = function()
-      return require("codecompanion.adapters").extend("openai", {
-        url = "https://api.neuralwatt.com/v1/chat/completions",
-        env = { api_key = "NEURALWATT_API_KEY" },
-        schema = {
-          model = { default = "Qwen/Qwen3.5-397B-A17B-FP8" },
-        },
-      })
-    end,
+    http = {
+      neuralwatt = function()
+        return require("codecompanion.adapters").extend("openai_compatible", {
+          formatted_name = "Neuralwatt",
+          env = {
+            url = "https://api.neuralwatt.com",
+            api_key = "NEURALWATT_API_KEY",
+          },
+          schema = {
+            model = { default = "nw-flash" },
+          },
+        })
+      end,
+    },
   },
-  strategies = {
+  interactions = {
     chat = { adapter = "neuralwatt" },
     inline = { adapter = "neuralwatt" },
   },
 })
 ```
 
-### avante.nvim
-
-```lua
-require("avante").setup({
-  provider = "openai",
-  openai = {
-    endpoint = "https://api.neuralwatt.com/v1",
-    model = "Qwen/Qwen3.5-397B-A17B-FP8",
-    api_key_name = "NEURALWATT_API_KEY",
-  },
-})
-```
-
-### gen.nvim
-
-```lua
-require("gen").setup({
-  model = "Qwen/Qwen3.5-397B-A17B-FP8",
-  host = "api.neuralwatt.com",
-  port = 443,
-  command = function(options)
-    return "curl -sN https://api.neuralwatt.com/v1/chat/completions "
-      .. "-H 'Authorization: Bearer " .. os.getenv("NEURALWATT_API_KEY") .. "' "
-      .. "-H 'Content-Type: application/json' "
-      .. "-d '{\"model\": \"" .. options.model .. "\", \"messages\": [{\"role\": \"user\", \"content\": \"$prompt\"}], \"stream\": true}'"
-  end,
-})
-```
-
-### Environment Variable
-
-For all plugins, set your API key:
+`api_key` names the environment variable that holds your key:
 
 ```bash
 export NEURALWATT_API_KEY="your-api-key-here"
 ```
 
-Add to your shell profile (`.zshrc`, `.bashrc`, etc.) to persist.
+`nw-flash` is one of our [tracking aliases](https://docs.neuralwatt.com/guides/tracking-aliases). Any chat model from the [model catalog](https://portal.neuralwatt.com/models) works in its place, such as `kimi-k3.1-pro`.
+
+For other plugins, use the base URL and settings in [Any other tool](https://docs.neuralwatt.com/integrations/overview#any-other-tool).

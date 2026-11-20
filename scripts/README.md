@@ -88,7 +88,9 @@ $ nw-usage --tmux
 
 ## Caching
 
-The `--tmux` flag caches results for 5 minutes at `/tmp/nw-usage-cache.json` to avoid excessive API calls from statusline refreshes. Other modes always fetch fresh data.
+The `--tmux` flag caches results for one minute at `/tmp/nw-usage-cache.json` (set `NW_USAGE_CACHE_FILE` to use another path), so statusline refreshes don't call the API every time. Other modes always fetch fresh data.
+
+"Today" is the current UTC day, because the usage API groups requests by UTC day. Before your first request of the day, `nw-usage` shows zero.
 
 ## Colors
 
@@ -108,6 +110,30 @@ The `--color` flag accepts ANSI color codes:
 
 ## Integrations
 
-- **Claude Code statusline**: See [recipes/claude-code/](../recipes/claude-code/)
-- **Tmux statusline**: See [recipes/tmux/](../recipes/tmux/)
-- **OpenCode**: See [recipes/opencode/](../recipes/opencode/)
+- Claude Code status line: [Claude Code guide](https://docs.neuralwatt.com/integrations/claude-code#show-your-energy-use-in-the-status-line)
+- tmux status bar: [recipes/tmux](../recipes/tmux/)
+- OpenCode: the `/nw-usage` command below
+
+### OpenCode command
+
+`install-nw-usage` links `nw-usage` into `~/.local/bin` and adds a `/nw-usage` command to OpenCode. The command runs `nw-usage` and asks the model to report the result.
+
+```bash
+scripts/install-nw-usage --global    # adds the command to ~/.config/opencode/opencode.json
+scripts/install-nw-usage --project   # writes .opencode/command/nw-usage.md in the current directory
+```
+
+`--global` keeps the rest of an existing `opencode.json`. To add the command by hand, put this in `opencode.json`:
+
+```json
+{
+  "command": {
+    "nw-usage": {
+      "description": "Show Neuralwatt energy usage",
+      "template": "Here is my Neuralwatt API usage:\n\n!`nw-usage`\n\nReport this to the user."
+    }
+  }
+}
+```
+
+The [OpenCode guide](https://docs.neuralwatt.com/integrations/opencode) covers the rest of the OpenCode setup.
