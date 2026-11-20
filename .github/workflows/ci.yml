@@ -46,3 +46,10 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: scripts/
+
+  script-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run nw-usage and install-nw-usage tests
+        run: scripts/tests/test-scripts.sh

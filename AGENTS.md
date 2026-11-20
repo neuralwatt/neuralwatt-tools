@@ -49,7 +49,8 @@ ruff check --fix . && ruff format .
 ### Shell Scripts
 
 ```bash
-shellcheck scripts/*
+shellcheck scripts/nw-usage scripts/install-nw-usage scripts/tests/*.sh
+scripts/tests/test-scripts.sh   # offline tests with a fake curl and a temp HOME
 ```
 
 ---
@@ -169,6 +170,7 @@ CI runs on push to main and PRs:
 1. **test**: pytest on Python 3.10, 3.11, 3.12, 3.13
 2. **lint**: `ruff check` and `ruff format --check`
 3. **shellcheck**: Lints shell scripts in `scripts/`
+4. **script-tests**: Runs `scripts/tests/test-scripts.sh`
 
 ---
 

@@ -88,7 +88,9 @@ $ nw-usage --tmux
 
 ## Caching
 
-The `--tmux` flag caches results for one minute at `/tmp/nw-usage-cache.json`, so statusline refreshes don't call the API every time. Other modes always fetch fresh data.
+The `--tmux` flag caches results for one minute at `/tmp/nw-usage-cache.json` (set `NW_USAGE_CACHE_FILE` to use another path), so statusline refreshes don't call the API every time. Other modes always fetch fresh data.
+
+"Today" is the current UTC day, because the usage API groups requests by UTC day. Before your first request of the day, `nw-usage` shows zero.
 
 ## Colors
 

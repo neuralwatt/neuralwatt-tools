@@ -132,7 +132,7 @@ install_global_command() {
         local temp_file
         temp_file="$(mktemp)"
         
-        if jq -s '.[0] * {command: ((.[0].command // {}) * (.[1].command // {}))}' "$OPENCODE_GLOBAL_CONFIG" <(echo "$COMMAND_JSON") > "$temp_file"; then
+        if jq -s '.[0] * {command: ((.[0].command // {}) * (.[1].command // {}))}' "$OPENCODE_GLOBAL_CONFIG" <(printf '%s\n' "$COMMAND_JSON") > "$temp_file"; then
             mv "$temp_file" "$OPENCODE_GLOBAL_CONFIG"
             log_info "Added nw-usage command to $OPENCODE_GLOBAL_CONFIG"
         else
@@ -142,7 +142,7 @@ install_global_command() {
         fi
     else
         # Create new config
-        echo "$COMMAND_JSON" > "$OPENCODE_GLOBAL_CONFIG"
+        printf '%s\n' "$COMMAND_JSON" > "$OPENCODE_GLOBAL_CONFIG"
         log_info "Created $OPENCODE_GLOBAL_CONFIG with nw-usage command"
     fi
 }
@@ -155,7 +155,7 @@ install_project_command() {
     # Ensure command directory exists
     mkdir -p "$command_dir"
     
-    echo "$COMMAND_MD" > "$command_dir/nw-usage.md"
+    printf '%s\n' "$COMMAND_MD" > "$command_dir/nw-usage.md"
     log_info "Created $command_dir/nw-usage.md"
 }
 
