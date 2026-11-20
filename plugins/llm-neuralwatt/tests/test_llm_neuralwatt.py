@@ -311,6 +311,59 @@ def test_register_models_fallback_on_auth_error(caplog):
     assert "HTTP 401" in caplog.text
 
 
+def test_register_models_fallback_on_read_error(httpx_mock, caplog):
+    """Falls back with a warning when the connection drops mid-request."""
+    httpx_mock.add_exception(
+        httpx.ReadError("connection reset"),
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+    )
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value="test-key"):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+    assert "ReadError" in caplog.text
+
+
+def test_register_models_fallback_on_non_json_body(httpx_mock, caplog):
+    """Falls back with a warning when a 200 response isn't JSON (e.g. a captive portal)."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        text="<html>Sign in to the network</html>",
+    )
+    registered = []
+    with patch("llm_neuralwatt.llm.get_key", return_value="test-key"):
+        register_models(registered.append)
+
+    model_ids = {m.model_id for m in registered}
+    assert model_ids == set(FALLBACK_MODELS.keys())
+    assert "not JSON" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"object": "list"},
+        {"data": {"id": "nw-flash"}},
+        {"data": [{"object": "model"}]},
+        [{"id": "nw-flash"}],
+    ],
+)
+def test_fetch_models_rejects_bad_shape(httpx_mock, body):
+    """fetch_models raises ValueError for a response that isn't a model list."""
+    httpx_mock.add_response(
+        method="GET",
+        url="https://api.neuralwatt.com/v1/models",
+        json=body,
+    )
+
+    with pytest.raises(ValueError):
+        fetch_models("test-key")
+
+
 def test_model_attributes():
     """Verify model has correct attributes."""
     model = NeuralwattChat("neuralwatt-kimi-k3.1-pro", "kimi-k3.1-pro")
