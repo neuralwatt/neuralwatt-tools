@@ -2,13 +2,17 @@
 
 This repository contains tools, plugins, and recipes for the Neuralwatt inference API.
 
+Setup guides for third-party tools (coding agents, chat apps) live on the docs site at https://docs.neuralwatt.com/integrations/overview, not here. Most directories under `recipes/` are short pointers to those pages. Add a new tool's setup guide to the docs site rather than as a recipe here.
+
+The docs site installs `scripts/nw-usage` from its raw GitHub URL on `main` and the llm plugin from `plugins/llm-neuralwatt`, so moving or renaming either breaks those pages.
+
 ## Project Structure
 
 ```
 neuralwatt-tools/
 ├── plugins/llm-neuralwatt/   # Python pip-installable LLM plugin
 ├── scripts/                   # Shell scripts (nw-usage)
-├── recipes/                   # Configuration guides for various tools
+├── recipes/                   # Neovim and tmux recipes, plus pointers to the docs site
 └── .github/workflows/         # CI configuration
 ```
 
