@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install nw-usage script and add it as an Opencode command
+# Install nw-usage script and add it as an OpenCode command
 #
 # Usage:
 #   install-nw-usage              # Interactive prompt (global default)
@@ -26,7 +26,7 @@ COMMAND_JSON='{
   "command": {
     "nw-usage": {
       "description": "Show Neuralwatt energy usage",
-      "template": "Here is my Neuralwatt API usage:\\n\\n!`nw-usage`\\n\\nReport this to the user."
+      "template": "Here is my Neuralwatt API usage:\n\n!`nw-usage`\n\nReport this to the user."
     }
   }
 }'
@@ -148,7 +148,8 @@ install_global_command() {
 }
 
 install_project_command() {
-    local project_root="${1:-$(pwd)}"
+    local project_root
+    project_root="$(pwd)"
     local command_dir="$project_root/.opencode/command"
     
     # Ensure command directory exists

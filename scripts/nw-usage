@@ -3,14 +3,14 @@
 #
 # Usage:
 #   nw-usage                       # Human-readable output (always fresh)
-#   nw-usage --tmux                # Compact for tmux/statusline (cached 5min)
+#   nw-usage --tmux                # Compact for tmux/statusline (cached 1 min)
 #   nw-usage --tmux --color '1;32' # With ANSI color (bright green)
 #   nw-usage --json                # Raw JSON (always fresh)
 
 set -euo pipefail
 
 CACHE_FILE="/tmp/nw-usage-cache.json"
-CACHE_MAX_AGE=60  # 5 minutes
+CACHE_MAX_AGE=60  # seconds
 API_KEY_FILE="${NEURALWATT_API_KEY_FILE:-$HOME/.config/neuralwatt/api_key}"
 
 # Parse args

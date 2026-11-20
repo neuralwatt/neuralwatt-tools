@@ -17,7 +17,7 @@ local state = {
 
 -- Config
 M.config = {
-  api_key_file = vim.fn.expand("~/.config/neuralwatt/neuralwatt_portal_key"),
+  api_key_file = vim.fn.expand("~/.config/neuralwatt/api_key"),
   poll_interval_ms = 30000,  -- 30 seconds
   auto_start = true,
 }
@@ -53,8 +53,9 @@ function M.fetch(callback)
           state.current = json
           state.last_fetch = os.time()
 
-          -- Extract today's stats
-          local today_str = os.date("%Y-%m-%d")
+          -- Extract today's stats. The API groups usage by UTC day.
+          local today_str = os.date("!%Y-%m-%d")
+          state.today = nil
           if json.daily then
             for _, day in ipairs(json.daily) do
               if day.date == today_str then

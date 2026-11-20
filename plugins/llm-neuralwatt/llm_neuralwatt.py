@@ -24,11 +24,13 @@ USER_AGENT = "llm-neuralwatt/0.1.0"
 TIMEOUT_SECONDS = 300.0
 DISCOVERY_TIMEOUT_SECONDS = 5.0
 
-# Fallback models used when the /v1/models endpoint is unreachable.
+# Fallback models used when the /v1/models endpoint is unreachable. These are
+# tracking aliases, which Neuralwatt moves to a newer model when one ships, so
+# the names keep working as the catalog changes.
 FALLBACK_MODELS = {
-    "neuralwatt-qwen": "Qwen/Qwen3.5-397B-A17B-FP8",
-    "neuralwatt-kimi": "moonshotai/Kimi-K2.5",
-    "neuralwatt-gpt-oss": "openai/gpt-oss-20b",
+    "neuralwatt-nw-large": "nw-large",
+    "neuralwatt-nw-flash": "nw-flash",
+    "neuralwatt-nw-small": "nw-small",
 }
 
 
@@ -36,9 +38,8 @@ def model_id_from_name(api_model_id: str) -> str:
     """Derive a short llm model ID from a Neuralwatt API model name.
 
     Examples:
-        "Qwen/Qwen3.5-397B-A17B-FP8" -> "neuralwatt-qwen3.5-397b-a17b-fp8"
-        "moonshotai/Kimi-K2.5" -> "neuralwatt-kimi-k2.5"
-        "openai/gpt-oss-20b" -> "neuralwatt-gpt-oss-20b"
+        "kimi-k3.1-pro" -> "neuralwatt-kimi-k3.1-pro"
+        "nw-flash" -> "neuralwatt-nw-flash"
         "meta-llama/Llama-3-70B-Instruct" -> "neuralwatt-llama-3-70b-instruct"
     """
     # Use the part after the org prefix (or the whole string if no slash).
