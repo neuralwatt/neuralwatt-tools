@@ -3,6 +3,3 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
-
-# Node / pi extension tests
-node_modules/

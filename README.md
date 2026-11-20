@@ -43,8 +43,6 @@ Get your API key from [portal.neuralwatt.com](https://portal.neuralwatt.com), th
 |-|-|-|
 | [nw-usage](scripts/) | Prints today's requests and energy, for a terminal or status line | [nw-usage README](scripts/README.md) |
 | [llm plugin](plugins/llm-neuralwatt/) | Adds Neuralwatt models to [simonw/llm](https://llm.datasette.io/) and prints energy per request | [Plugin README](plugins/llm-neuralwatt/README.md) |
-| [Pi MCR extension](plugins/pi/) *(private beta)* | Unlock 1M virtual context in [Pi](https://pi.dev) via Neuralwatt MCR | [Setup guide](plugins/pi/README.md) |
-| [Build your own MCR client](docs/mcr-context-drop-client-protocol.md) | Integrate MCR context management into any OpenAI-/Anthropic-compatible client | [Protocol spec](docs/mcr-context-drop-client-protocol.md) |
 | [Neovim](recipes/neovim/) | Energy monitor in a floating window, plus a codecompanion.nvim config | [Neovim recipe](recipes/neovim/README.md) |
 | [tmux](recipes/tmux/) | Today's usage in the status bar | [tmux recipe](recipes/tmux/README.md) |
 
@@ -56,8 +54,7 @@ neuralwatt-tools/
 │   ├── nw-usage             # Usage CLI
 │   └── install-nw-usage     # Installs nw-usage and an OpenCode /nw-usage command
 ├── plugins/
-│   ├── llm-neuralwatt/      # pip-installable llm plugin
-│   └── pi/                  # Pi MCR extension (1M virtual context)
+│   └── llm-neuralwatt/      # pip-installable llm plugin
 └── recipes/
     ├── neovim/              # Energy monitor and codecompanion.nvim config
     ├── tmux/                # Status line
